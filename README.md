@@ -37,8 +37,8 @@ How each fix works is in [docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md); the measu
 
 ## Install
 
-1. Download `PerfeBT.dll` and `mod.json` (or build them, see below).
-2. Put both in `BATTLETECH/Mods/PerfeBT/`.
+1. Download `PerfeBT_<version>.zip` from the [Releases](https://github.com/cyboman32/perfebt/releases) page.
+2. Extract it into `BATTLETECH/Mods/`. You get `Mods/PerfeBT/` with `PerfeBT.dll`, `mod.json` and this README.
 3. Check the memory settings below against your PC's RAM.
 
 The defaults are for normal play: all fixes on, performance monitoring off.
@@ -106,3 +106,5 @@ Suggested values by installed RAM (RogueTech itself needs 10–16 GB):
 - [CHANGELOG.md](CHANGELOG.md)
 
 **Building:** `PerfeBT.csproj` (net472) references the game's `Managed` assemblies, ModTek's `0Harmony.dll` and CustomComponents. Set `GameDir` in the csproj, then run `dotnet build -c Release`.
+
+**Releasing:** the build needs the game's own files, so releases are built locally rather than on GitHub. With the game installed, a clean working tree and the [GitHub CLI](https://cli.github.com) logged in, run `powershell -ExecutionPolicy Bypass -File scripts/release.ps1 -Tag v1.2.3`. It builds, packs `dist/PerfeBT_v1.2.3.zip`, tags HEAD, pushes the tag and creates the GitHub release with the zip; the notes come from the `## 1.2.3` section of the CHANGELOG. `-DryRun` only builds and packs; `-GameDir` overrides the game folder.

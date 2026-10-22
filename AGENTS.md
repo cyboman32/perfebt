@@ -5,6 +5,12 @@
 Commit only when the user asks for it. Never commit automatically: not after finishing a change, not as a checkpoint,
 not as part of another task. Leave changes uncommitted until the user requests a commit.
 
+## Releases
+
+Release only when the user asks, with `scripts/release.ps1 -Tag <tag>` (run `-DryRun` first). The build needs the
+game's assemblies, so there is no GitHub Actions workflow. Packages go to `dist/`, which is git-ignored; never commit
+zips or build output.
+
 ## Commit messages
 
 A commit message states **why** the change was made: the problem it solves, the evidence behind it (measurements,
