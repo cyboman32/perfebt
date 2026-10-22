@@ -1,5 +1,10 @@
 # Agent instructions
 
+## Commits
+
+Commit only when the user asks for it. Never commit automatically: not after finishing a change, not as a checkpoint,
+not as part of another task. Leave changes uncommitted until the user requests a commit.
+
 ## Commit messages
 
 A commit message states **why** the change was made: the problem it solves, the evidence behind it (measurements,
