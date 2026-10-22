@@ -152,6 +152,21 @@ namespace PerfeBT
         public bool VisibilityRebuildMemo = true;
         public int VisibilityRebuildMemoVerifyEvery = 64;
 
+        // Line-of-sight rays (LineOfSight.bresenhamVisionTest, a cell-by-cell walk over the map grid) traced again with
+        // the same arguments while the map has not changed: within one CombatGameState.Update, unit death or visibility
+        // rebuild, the result is remembered (urban maps: 94% of the rays in an 18 s death freeze were repeats). Dropped
+        // for rays near a destroyed building and around map or design-mask changes. Every
+        // LineOfSightRayMemoVerifyEvery-th reuse is traced again and compared (0 = never); a difference switches the
+        // memo off for the session.
+        public bool LineOfSightRayMemo = true;
+        public int LineOfSightRayMemoVerifyEvery = 64;
+
+        // The same ray walk without building the shared point list and walking it again, with the original's float
+        // operations and calls. Every LineOfSightFastTraceVerifyEvery-th ray runs the original and compares (0 =
+        // never); a difference switches it off for the session.
+        public bool LineOfSightFastTrace = true;
+        public int LineOfSightFastTraceVerifyEvery = 64;
+
         // Diagnostic: Boehm GC verbose statistics per collection in reports/<ts>_gc.log (marking, finalization, sweep).
         public bool GcStatsLog = false;
 
@@ -271,6 +286,7 @@ namespace PerfeBT
                 LoadGcPause = false;
                 LoadingScreenFix = ReleaseCombatLeftovers = ExitFast = LayoutFastPath = SaveAlloc = false;
                 UiListPoolTrim = DelayedStartIndex = FindObjectMissCache = VisibilityRebuildMemo = false;
+                LineOfSightRayMemo = LineOfSightFastTrace = false;
                 UnloadSkipSites = new List<string>();
                 UnloadDeferSites = new List<string>();
                 EmptySceneAdditive = false;

@@ -123,6 +123,10 @@ namespace PerfeBT
                 ApplyGuarded("FindObjectMissCache", () => FindObjectMissCache.Apply(harmony, s.FindObjectMissCacheVerifyEvery));
             if (s.VisibilityRebuildMemo)
                 ApplyGuarded("VisibilityRebuildMemo", () => VisibilityRebuildMemo.Apply(harmony, s.VisibilityRebuildMemoVerifyEvery));
+            if (s.LineOfSightRayMemo)
+                ApplyGuarded("LineOfSightRayMemo", () => LineOfSightTrace.ApplyMemo(harmony, s.LineOfSightRayMemoVerifyEvery));
+            if (s.LineOfSightFastTrace)
+                ApplyGuarded("LineOfSightFastTrace", () => LineOfSightTrace.ApplyFastTrace(harmony, s.LineOfSightFastTraceVerifyEvery));
             // After the census: it checks the original bytes of CancelCallDelayed, which this detours.
             if (s.DelayedStartIndex)
                 ApplyGuarded("DelayedStartIndex", () => DelayedStartIndex.Apply(s.DelayedStartIndexVerifyEvery));
