@@ -1,0 +1,14 @@
+# Build output
+bin/
+obj/
+
+# IDE state
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+
+# Runtime output if the mod folder is ever used as the repo
+*.log
+reports/
