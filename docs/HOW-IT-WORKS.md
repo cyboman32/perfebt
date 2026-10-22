@@ -1,0 +1,109 @@
+# How PerfeBT works
+
+Technical reference for every fix, diagnostic and the profiler. For what to install and which settings to change, see the [README](../README.md); for the measurements behind each fix and the remaining slow spots, see [FINDINGS.md](FINDINGS.md).
+
+## Principles
+
+- Every fix is meant to be **result-identical** to the code it replaces: same return values, same side effects, same order. Saves stay byte-identical.
+- Each fix has its own setting. A fix whose target mod or method is missing or changed is skipped with a `[fix] failed …` line in `PerfeBT.log` instead of failing.
+- Fixes that remember results check themselves: every N-th time (default 64, `0` = never) the original code runs as well and the results are compared. A difference switches that fix off for the rest of the session and is logged. N is set by `FindObjectMissCacheVerifyEvery`, `VisibilityRebuildMemoVerifyEvery`, `LineOfSightRayMemoVerifyEvery`, `LineOfSightFastTraceVerifyEvery` and `DelayedStartIndexVerifyEvery`.
+- PerfeBT only patches vanilla game, Unity and Mono methods, or explicitly named methods of known mods. It never scans all assemblies at runtime: patching a type can trigger its static constructor early.
+
+## Master switches
+
+`Optimizations: false` turns off everything under "Memory and garbage collection" and "Fixes"; `PerformanceMonitoring: false` turns off everything under "Diagnostics" and the profiler. With a master switch on, the individual settings decide. Without optimizations there are no `[gc]` lines (they come from `LoadGcPause`) and no `[load]` lines (they come from the save-load fix); collections still show in the profiler reports and hitch lines.
+
+## Memory and garbage collection
+
+The game's garbage collector (Boehm GC in Unity's Mono) is non-incremental: every collection stops the game and walks all live memory, 1–5 s with RogueTech. It normally runs every few GB of allocation.
+
+`LoadGcPause` disables the collector (`mono_unity_gc_disable`) during level transitions and collects once at the end of the loading screen (with a budget, only if the game grew at least `GcLoadCollectMinMb` since the last collection). With `GcBudgetMb` above 0 the collector also stays off during play; a collection runs when the heap has grown `GcBudgetMb` since the last one, or when free RAM or free commit (RAM + page file) drops below `GcMinFreeMemoryMb` (then at most once per 1000 MB of growth). With `GcBudgetMb` 0, `GcPauseMaxGrowthMb` caps the growth of a single load. While the collector is off, `GC.Collect` calls from other mods do nothing. The collector is turned back on at quit: with it off, Mono's finalizer thread never woke and `mono_gc_cleanup` waited its 40 s timeout.
+
+Each collection writes a `[gc]` line: reason, duration, heap and working set before/after, page faults, scene, time since the previous one.
+
+## Fixes
+
+| Setting | Target | How it works |
+|---|---|---|
+| `FixTagSetIndex` | game MDDB | Adds a `NOCASE` index on `TagSetTag(TagSetID)`. `GetTagsForSet` filters with `COLLATE NOCASE` but only BINARY indexes exist, so it scanned 432k rows per call (~11 ms). |
+| `FixSqliteInList` | game MDDB (MissionControl unit generation) | Dapper expands an `IN (...)` list into one SQL parameter per value (~620 ms per lance query). Long integer lists are written as literals instead; same rows, same order. Falls back to Dapper's own expansion for anything unexpected. |
+| `SkipInternetCheck` | game | `UnityGameInstance.CheckInternetConnectivity` does a synchronous HTTP request with a 5 s timeout on the main thread. It reports offline immediately, as the game does on timeout. |
+| `SaveLoadMaxLightLoads` (300), `LoadFrameBudgetMs` (1000), `SaveLoadMaxHeavyLoads` (0) | game DataManager | Between `RequestDataManagerResources` and `RespondToDefsLoadComplete`, the light concurrent-load limit goes from 10 to 300, and a `LoadRequest.PopPendingRequest` prefix stops popping once the frame budget is spent. `0` keeps the game's value. |
+| `FixDataLoaderMonitoring` | game DataLoader | `LoadResource(..., monitor: true)` registered every file for hot reload with an O(n) list scan; the consumer (`CheckFiles`) never runs. Forces `monitor = false`. |
+| `FixJsonReflection` | game JSON deserializer | Transpilers replace `Type.GetInterfaces` / `GetGenericArguments` / `Enumerable.Contains<Type>` in `RehydrateObjectFromDictionary` and `ConvertValue` with per-type cached arrays; `MemberInfoHelper.IsValueType` is memoized per type (~4.5M member sets per save load). |
+| `FixUnitTypeTags` | CustomComponents | `TagUnitType.IsThisType` built `MechTags ∪ ChassisTags` per unit type per mech (243k unions); built once per `BuildUnitTypes` call. |
+| `FixCategoryCache` | CustomComponents | During `DefaultFixer.FixMechs`, `IsCategory` is answered from a per-def array (~5.3M calls). |
+| `FixDefaultsChangeFast` | CustomComponents | Allocation-free `DefaultFixer.DoDefaultsChange`: same `IsCategory`/`AddChange` calls in the same order. The original runs when trace logging is on. |
+| `FixInventorySortFast` | CustomComponents | `SortMechDefInventory` looks each component's sorter up once per sort instead of twice per comparison. |
+| `FixPendingAdjustScan` | CustomComponents | The duplicate check in `InventoryOperationState.DoChanges` compares category IDs instead of building two strings per element. |
+| `FixPrefabBundleScan` (+ `VerifyPrefabBundleScan`) | CustomUnits | The `DataManager.Exists` postfix scanned every asset name of a bundle per call; it uses a per-bundle index. Verify mode also runs the original and logs `MISMATCH`. |
+| `FixMechLabIconPreload` | CustomFilters | `PreloadIcons` no longer re-reads and re-parses icons already in the SVG cache. |
+| `FixContractIntelMinimap` | CustomUnits | Skips `GetIntelMinimapSprite` (map metadata, terrain, a 512×512 texture) when `LanceContractIntelWidget.Init` is about to hide the minimap (no `Intel_Show_Minimap` company stat). Falls back to the original if unknown patches are present on map loading. |
+| `PreloadIrbtPortraits` | IRBTModUtils | Runs IRBT's own portrait load after `SimGameState.Rehydrate` instead of in the first `CombatGameState._Init`. |
+| `LayoutFastPath` | Unity UI | `LayoutRebuilder.MarkLayoutForRebuild` returns early for an inactive rect under an inactive parent, where the original marks nothing (25–50k calls, ~20 µs each, per mech lab enter/exit or store switch). |
+| `UiListPoolTrim` | Unity UI | `MaskUtilities.Notify2DMaskStateChanged` / `NotifyStencilStateChanged` fill a list from Unity UI's shared `ListPool<Component>` with `GetComponentsInChildren` of a whole masked panel; `List.Clear` keeps that capacity, and Unity's `GetComponents(…, list)` visits every slot up to it. After those two methods, empty pooled lists above 128 slots drop their array (`[listpool]` lines). |
+| `SaveAlloc` | game saves | The save message (~290 MB) is written into a stream sized once with `CalculateSize()` and returned without the `ToArray` copy; the gzip output stream of `SaveBlock<T>.CompressBytes` starts at 1/32 of the input. Same bytes. |
+| `ReleaseCombatLeftovers` | CustomAmmoCategories, MissionControl | On the Argo and main menu, clears the last mission's map grid and trees, combat HUD, `CombatGameState`, actor lookups and encounter cell grid that these mods keep in static fields (~260 MB). |
+| `UnloadSkipSites`, `UnloadCoalesceFrames` (30) | game, CustomMaps | `Resources.UnloadUnusedAssets` from the listed call sites is skipped when one already ran within `UnloadCoalesceFrames` frames (~3 s each with RogueTech's heap). Empty list = off. |
+| `UnloadDeferSites`, `UnloadDeferFrames` (3) | game | Unloads from the listed sites are postponed a few frames and dropped when a scene load, which unloads anyway, starts first. Empty list = off. |
+| `EmptySceneAdditive` | game | Loads the intermediate `Empty` scene additively during level transitions: one asset unload less. When `LevelLoader.activeScene` is already `Empty`, it loads as the original does. |
+| `LoadingScreenFix` | game | The Loading scene's clear camera drew over the UI, and from the Argo or combat nothing composited the UI render texture; the curtain now stays visible. Display only. |
+| `ExitFast` | game | After the managed shutdown (Unity quitting event, other mods' `ProcessExit` handlers, Steam shutdown) and saving PlayerPrefs, the process ends instead of running Unity/Mono's native teardown of a 30–45 GB heap. Skipped while a background save is still running. |
+| `FindObjectMissCache` (+ `…VerifyEvery`) | game | After combat, `CameraControl.Instance` (asked every frame by the audio engine) searched the whole scene (~19 ms, 170k behaviours) because the camera was unloaded; `BTCustomRenderer.btSunlight` did the same during map loads. A miss for these two types is remembered until a scene load, `CameraControl.Create` or `BTSunlight.OnEnable`; searches always run inside `Create` (`[misscache]` lines). |
+| `VisibilityRebuildMemo` (+ `…VerifyEvery`) | game | On a kill, `TurnDirector.RebuildVisCaches` → `Team.RebuildVisibilityCacheAllUnits` runs `UpdateVisibilityCacheForDeadUnit` per dead unit of every team, each rebuilding every unit's visibility to every combatant. Inside the outermost of these calls, `VisibilityCache.CalcVisValueToTarget` reuses a result already computed for the same cache and target (same cache write, same return value) (`[vismemo]` lines). |
+| `LineOfSightRayMemo` (+ `…VerifyEvery`) | game | Remembers `LineOfSight.bresenhamVisionTest` results by all arguments, only inside the outermost `CombatGameState.Update`, `AbstractActor.HandleDeath` or visibility rebuild. See "Sight-line memo" below (`[losray]` lines). |
+| `LineOfSightFastTrace` (+ `…VerifyEvery`) | game | The same walk as `bresenhamVisionTest` with `getProjectedHeightAt` inlined and the Bresenham points in reused arrays instead of the shared `List<Point>`; same float operations in the same order, and the same calls to `visCostOfCell` (so design-mask patches of other mods still apply). Off if `BresenhamLine` or `getProjectedHeightAt` is patched. |
+| `DelayedStartIndex` (+ `…VerifyEvery`, experimental, off) | Unity engine | `MonoBehaviour::RemoveFromManager` cancels a script's pending `Start` with `DelayedCallManager::CancelCallDelayed`, which walks every pending call; building and hiding a long list is quadratic. Native detours (MonoMod.Core) on that function and every path that adds or removes those calls keep an index by object; the cancel removes the indexed call through `DelayedCallManager::Remove` as the walk would. Only for this game's `UnityPlayer.dll` build; off-main-thread use or any exception switches it off (`[startidx]` lines). |
+
+### Sight-line memo
+
+A sight line's result depends only on its arguments and map state: cell heights, terrain and design masks, building cells. The memo is dropped:
+
+- at the end of the outermost update, death or rebuild;
+- for rays whose bounding box (end points ±2 cells) contains a cell of a destroyed building (`ObstructionGameLogic.BuildingDestroyedUpdateCells`), found lazily at the next lookup;
+- entirely after cells are repainted (`MarkDropshipLandingZone`, `MarkAssociatedCellsAsDangerous`, `PaintDangerousLocationForDropPod`, `MapMetaData.PaintDangerousLocation`);
+- entirely on entering and leaving `TurnDirector.EndCurrentRound` (CustomAmmoCategories ticks fire and temporary masks in its postfix), `ActorMovementSequence.Update` and the `CombatHUDStatusPanel` move-preview methods (CustomAmmoCategories hides design masks there).
+
+CustomAmmoCategories' other mask changes run in its own `MonoBehaviour.Update`, outside the memo. The memo stores the original's result before other postfixes; on a hit the original is skipped but later postfixes (StrategicOperations') still run. Both line-of-sight settings stand down if another mod adds a prefix or transpiler to `bresenhamVisionTest`; the memo also if another postfix runs before its own.
+
+## Diagnostics
+
+Only with `PerformanceMonitoring: true`.
+
+| Setting | How it works |
+|---|---|
+| `ProfileAlloc`, `AllocWindowSeconds`, `AllocWindowTopN` | Per-method managed allocation (exclusive MB) in reports and hitch lines, plus an `[alloc]` line every `AllocWindowSeconds` with MB/s and the top allocating methods (`0` = off). Accurate while the collector is off. |
+| `FindObjectWatch` | Times `Object.FindObjectOfType(Type)` by searched type with sampled callers (`[findobj]` lines every 30 s while over 100 ms, and at each scene load). |
+| `VisibilityWatch` | Frames with 1000+ `LineOfSight.GetVisibilityToTargetWithPositionsAndRotations` calls (replaced by LowVisibility): calls, time, repeated arguments, sample callers (`[vis]` lines). |
+| `LoopTimerSeconds` (30), `LoopTimerTopN` | Main-thread time per frame by Unity player-loop system: script `Update`/`LateUpdate`, physics, animation, UI canvases, rendering, GPU wait (`[loop]` lines with average, 95th percentile and worst frame). `0` = off. |
+| `LoadDiagnostics` | One `[load]` line per second during save load: loads by type, batches walked, time in `UpdateRequests` and `CheckRequestsComplete`, GCs. |
+| `TimeAutoFixers`, `TimeLocalSettingsReads` | Per-delegate timings of CustomComponents auto-fixers and CustomLocalSettings readers. |
+| `DelayedCallCensus` | When the salvage screen opens (and on Ctrl+Shift+D with `Profile` on): Unity's pending coroutines and Invokes grouped by script, coroutine and GameObject root (`[delayed]` lines). Only for this game's `UnityPlayer.dll` build. |
+| `SaveProfile` | Per-type serialization cost of each save (`[save]` lines). |
+| `QuitWatch` | Timeline of background save writes and quitting (`[quit]` lines). |
+| `UnloadDiagnostics` | Every asset unload request and the long frames after it (`[unload]` lines). |
+| `TransitionWatch`, `TransitionWatchShotSeconds` | Loading-screen state (`[screen]` lines) and a screenshot every N seconds of a transition to `reports/screens/`. |
+| `HeapCensus`, `HeapCensusHotkey` (Ctrl+Shift+H), `HeapCensusScenes`, `HeapCensusSceneDelaySeconds`, `HeapCensusPathTypes`, `HeapCensusPathShapes` | Type histogram and first-reach bytes per root to `reports/<time>_heap.txt`, on the hotkey or once per listed scene. Freezes the game 10–30 s. |
+| `GcStatsLog` | Boehm verbose statistics per collection to `reports/<time>_gc.log`. Ctrl+Shift+G runs a collection with a census of GC-handle targets (`[gchandles]`), a full `GC_dump` and `RootScan` (heap objects of 32 MB or more and every word pointing into them, `[rootscan]`). Addresses are for this exact `mono-2.0-bdwgc.dll` build and are checked before use. |
+| `GcDumpAfterUsedMb` | Once per session, the same dump after the first collection that leaves at least this many MB in use. `0` = off. |
+
+## Profiler
+
+With `"Profile": true` PerfeBT times main-thread method calls with Harmony prefix/finalizer pairs.
+
+- Every Harmony prefix/postfix/finalizer/transpiled method of every mod is wrapped (`InstrumentHarmonyPatches`), so cost is attributed per mod.
+- Additional types are selected by regex:
+  - `TypePatterns`: Assembly-CSharp full type names, instrumented at `FinishedLoading`. Types with a static constructor are skipped, because patching can trigger it early (unless `InstrumentSafeCctorTypes` and `CctorScan` judge it side-effect free).
+  - `LateTypePatterns`: `"^Assembly:Full.Type.Name"`, instrumented by the main-menu rescan (`RescanDelaySeconds` later).
+  - `InitTypePatterns`: same form, instrumented in PerfeBT's `Init` to time the rest of mod loading, for example ModTek's manifest processing. Written as the `startup` report.
+  - `AssemblyPatterns`: whole assemblies. `ExcludePatterns`: excluded `Type::Method`.
+  - Methods with an IL body under `MinIlBytes` (patch methods: `MinPatchIlBytes`) are skipped.
+- Frames longer than `HitchMs` (150) are logged with a `HitchTopN` breakdown and the instrumented/uninstrumented split.
+- A report is written to `reports/` per scene change and after each busy period (`AutoSegmentCalmSeconds` calm, at least `AutoSegmentMinBusyMs` of hitches): exclusive and inclusive time per method (`TopN` rows), call counts, owners, off-thread calls and the hitch log.
+
+Overhead is roughly 1–2 µs per instrumented call. Patterns that hit per-frame or per-member methods inflate both wall time and the numbers. Never instrument `HBS.Util.Serialization::Put*`, `Statistic::Save` or `Variant::Save`, which run millions of times per save.
+
+## Source layout
+
+- `src/ModTek/`: fixes for vanilla BattleTech, Unity and Mono code only, meant to move into ModTek. They depend on nothing else in PerfeBT except `Log`; settings arrive as parameters from `Fixes.cs`, and extensions come in through hooks (`UnloadGate.AddSite`, `LoadGcPause.AfterCollect`).
+- `src/`: fixes for specific mods (CustomComponents, CustomUnits, CustomFilters, CustomMaps, CustomAmmoCategories, MissionControl, IRBTModUtils), diagnostics, the profiler, settings and the wiring in `Fixes.cs`.

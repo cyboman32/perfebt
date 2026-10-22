@@ -309,8 +309,26 @@ For RogueTech specifically, the maintainer's own suggestion in #251 is to filter
 - Use `26` again when debugging patch order.
 - `0` skips the file logger entirely and leaves HarmonyX's built-in default channel filter.
 
+## Later generic fixes (not yet evaluated for upstream)
+
+These were added to `PerfeBT/src/ModTek/` after this evaluation. They patch only vanilla BattleTech, Unity or Mono code, so they are candidates in principle; whether ModTek already overlaps and where each would live has not been checked against the pinned commit.
+
+| PerfeBT file (setting) | What it fixes | Measured effect | Note |
+|---|---|---|---|
+| `LayoutFastPath.cs` (`LayoutFastPath`) | `LayoutRebuilder.MarkLayoutForRebuild` returns early for hidden elements, where the original marks nothing | store switch 2.2 → 0.3 s; mech lab enter/exit ~2.4 → ~0.5 s | |
+| `UiListPoolTrim.cs` (`UiListPoolTrim`) | Unity UI's shared `ListPool<Component>` keeps the capacity of the largest masked panel; every `GetComponents(…, list)` then visits all slots | Argo UI 10–30× slower after long missions, until restart | |
+| `SaveAlloc.cs` (`SaveAlloc`) | Save message written into a stream sized once; gzip output starts small | ~1.2 GB less allocated per save, same bytes | |
+| `UnitGenFix.cs` (`FixSqliteInList`) | Long Dapper `IN (...)` lists written as literals | MissionControl unit generation 5.5 s → 20 ms | |
+| `FindObjectMissCache.cs` (`FindObjectMissCache`) | Remembers whole-scene `FindObjectOfType` misses for the combat camera and map sunlight | after-action/salvage screens spent 50–80% of their time searching | |
+| `VisibilityRebuildMemo.cs` (`VisibilityRebuildMemo`) | Reuses unit-to-target visibility results within one rebuild after a kill | urban kills froze 9–17 s, 80% repeats | |
+| `LineOfSightTrace.cs` (`LineOfSightRayMemo`, `LineOfSightFastTrace`) | Remembers `LineOfSight.bresenhamVisionTest` results within one update/death/rebuild; same walk without the shared point list | urban death freezes up to 18 s, 94% repeated rays; in-game effect not yet measured | Correctness depends on mods that change design masks (CustomAmmoCategories); the memo is cleared around their known changes |
+| `LoadGcPause.cs` (`LoadGcPause`, `GcBudgetMb`) | Collector off during transitions and up to a growth budget | GC freezes moved behind loading screens; exit 50 → 9 s | Trades RAM for fewer freezes; needs per-user tuning |
+| `ExitFast.cs` (`ExitFast`) | Ends the process after managed shutdown, skipping native heap teardown | | |
+| `UnloadGate.cs` (`UnloadSkipSites`, `UnloadDeferSites`), `LoadingScreenFix.cs` | Fewer redundant `UnloadUnusedAssets` (~3 s each); loading curtain instead of a black screen | | |
+| `DelayedStartIndex.cs` (`DelayedStartIndex`, experimental) | Index for Unity's `DelayedCallManager::CancelCallDelayed` | salvage list build 0.6–1.3 s | Native detours tied to this exact `UnityPlayer.dll` build; unlikely to fit ModTek |
+
 ## Out of scope (stay in PerfeBT)
-CustomComponents, CustomUnits, CustomFilters and IRBTModUtils fixes target specific mods. They belong upstream in those mods, not in ModTek.
+CustomComponents, CustomUnits, CustomFilters, CustomMaps, CustomAmmoCategories, MissionControl and IRBTModUtils fixes target specific mods. They belong upstream in those mods, not in ModTek.
 
 ## Suggested PR order
 1. **JsonReflection** → `BetterReflectionCache`: self-contained, no behaviour change, biggest measured win.
