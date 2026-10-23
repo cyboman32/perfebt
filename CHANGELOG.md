@@ -1,5 +1,8 @@
 # Changelog
 
+## Unreleased
+- Source split: fixes for RogueTech's mods moved from `src/` to `src/RogueTech/`; `src/` keeps diagnostics, the profiler, settings and wiring. No behavior change.
+
 ## 0.9.1
 - `LineOfSightRayMemo` fix: CustomUnits' `AbstractActor.OnPositionUpdate` hides design masks while units unaffected by them (hover and VTOL vehicles) move, and the memo was not cleared around it. Rays traced with masks hidden could be reused for other units in the same frame (and the other way round), so their visibility could be computed from the wrong design masks. Rays are now neither remembered nor reused while CustomAmmoCategories' `bHIDE_DESIGN_MASK_FLAG` is set, wherever it is set.
 - `LineOfSightRayMemoPersist` (on): in urban missions 98% of the visibility checks are units to ~550 buildings, and every death, round start and finished action traced the same rays again (one death: ~110,000 rays, 5 s, only 5–9% repeated within it). The memo now lives until the map may change: building destroyed (nearby rays only), cells repainted, scene load, or a CustomAmmoCategories design-mask change (`MapTerrainDataCellEx.AddDesignMask`, `ReconstructTempDesignMask`, `burn`, `burnTick`; its round-end ticks go through these too). Measured: later deaths in a round reuse 95–98% of the rays; death freezes 3.4–5.4 s → 0.3–2.1 s.

@@ -111,4 +111,5 @@ Overhead is roughly 1–2 µs per instrumented call. Patterns that hit per-frame
 ## Source layout
 
 - `src/ModTek/`: fixes for vanilla BattleTech, Unity and Mono code only, meant to move into ModTek. They depend on nothing else in PerfeBT except `Log`; settings arrive as parameters from `Fixes.cs`, and extensions come in through hooks (`UnloadGate.AddSite`, `LoadGcPause.AfterCollect`, `LineOfSightTrace.RegisterMaskSource`).
-- `src/`: fixes for specific mods (CustomComponents, CustomUnits, CustomFilters, CustomMaps, CustomAmmoCategories, MissionControl, IRBTModUtils), diagnostics, the profiler, settings and the wiring in `Fixes.cs`.
+- `src/RogueTech/`: fixes for specific RogueTech mods (CustomComponents, CustomUnits, CustomFilters, CustomMaps, CustomAmmoCategories, MissionControl, IRBTModUtils, LowVisibility). They bind mod types by name or are reached only through `Fixes.ApplyGuarded`, so a missing or changed mod disables the fix instead of PerfeBT.
+- `src/`: diagnostics, the profiler, settings and the wiring in `Fixes.cs`.
