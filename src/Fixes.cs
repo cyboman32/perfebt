@@ -124,9 +124,17 @@ namespace PerfeBT
             if (s.VisibilityRebuildMemo)
                 ApplyGuarded("VisibilityRebuildMemo", () => VisibilityRebuildMemo.Apply(harmony, s.VisibilityRebuildMemoVerifyEvery));
             if (s.LineOfSightRayMemo)
-                ApplyGuarded("LineOfSightRayMemo", () => LineOfSightTrace.ApplyMemo(harmony, s.LineOfSightRayMemoVerifyEvery));
+                ApplyGuarded("LineOfSightRayMemo", () =>
+                {
+                    CacDesignMasks.Apply(harmony);
+                    LineOfSightTrace.ApplyMemo(harmony, s.LineOfSightRayMemoVerifyEvery, s.LineOfSightRayMemoPersist);
+                });
             if (s.LineOfSightFastTrace)
                 ApplyGuarded("LineOfSightFastTrace", () => LineOfSightTrace.ApplyFastTrace(harmony, s.LineOfSightFastTraceVerifyEvery));
+            if (s.LineOfFireRayMemo)
+                ApplyGuarded("LineOfFireRayMemo", () => LineOfSightTrace.ApplyHeightMemo(harmony, s.LineOfFireRayMemoVerifyEvery, s.LineOfSightRayMemoPersist));
+            if (s.LowVisibilityLineOfFire)
+                ApplyGuarded("LowVisibilityLineOfFire", () => LowVisibilityLineOfFire.Apply(harmony, s.LowVisibilityLineOfFireVerifyEvery));
             // After the census: it checks the original bytes of CancelCallDelayed, which this detours.
             if (s.DelayedStartIndex)
                 ApplyGuarded("DelayedStartIndex", () => DelayedStartIndex.Apply(s.DelayedStartIndexVerifyEvery));

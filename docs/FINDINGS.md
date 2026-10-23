@@ -69,9 +69,10 @@ Urban maps (about 560 destructible buildings) froze for 1–17 s at a time; abou
 | Spot | Cost | Status |
 |---|---|---|
 | Kills: `TurnDirector.RebuildVisCaches` → `Team.RebuildVisibilityCacheAllUnits` runs `UpdateVisibilityCacheForDeadUnit` once per dead unit of every team, each rebuilding every unit's visibility to every combatant; grows during the mission. 80% of the checks in the worst frame repeated identical arguments. | 9–17 s per kill | fixed: `VisibilityRebuildMemo` |
-| Death rebuilds still left after that memo (no repeats within one rebuild) | 16 frames, 100 s in one mission (2.5–10 s each) | `LineOfSightRayMemo`, `LineOfSightFastTrace` (in-game effect not yet measured) |
-| Aura churn on death: CustomActivatableEquipment's `AbstractActor.HandleDeath` postfix (`CAEAuraHelper.RemoveAllAuras`) removes and reapplies auras on every unit; each `OnEffectEnd` runs `UpdateCacheReciprocal`. | 95 frames, 123 s in one mission; worst 18.4 s, 37,654 checks, 94% repeated | `LineOfSightRayMemo` (in-game effect not yet measured) |
-| Movement stutter: CustomUnits `CustomMech.OnPositionUpdate` → `UpdateVisibilityCache` → `UpdateCacheReciprocal`, ~1,100 building checks | 350–690 ms per stall | `LineOfSightRayMemo`, `LineOfSightFastTrace` (in-game effect not yet measured) |
+| Death rebuilds still left after that memo (no repeats within one rebuild) | 16 frames, 100 s in one mission (2.5–10 s each) | fixed: `LineOfSightRayMemo` + `LineOfSightRayMemoPersist`, `LineOfFireRayMemo`, `LowVisibilityLineOfFire`. One urban mission: 16 deaths took 0.17–2.2 s each, half under 0.4 s |
+| LowVisibility `GetLineOfFireUncached` during death rebuilds (actor list copied and sorted per call, ~8 height walks per call) | 1.7 s of a 2.2 s death | fixed: `LineOfFireRayMemo`, `LowVisibilityLineOfFire` |
+| Aura churn on death: CustomActivatableEquipment's `AbstractActor.HandleDeath` postfix (`CAEAuraHelper.RemoveAllAuras`) removes and reapplies auras on every unit; each `OnEffectEnd` runs `UpdateCacheReciprocal`. | 95 frames, 123 s in one mission; worst 18.4 s, 37,654 checks, 94% repeated | reduced by `LineOfSightRayMemo` (included in the death timings above); the churn itself is open |
+| Movement stutter: CustomUnits `CustomMech.OnPositionUpdate` → `UpdateVisibilityCache` → `UpdateCacheReciprocal`, ~1,100 building checks | 350–690 ms per stall | reduced by `LineOfSightRayMemo`, `LineOfSightFastTrace`; not measured separately |
 | Deploy: CustomUnits `DEPLOY` placeholder death | 10.1 s | partly covered by the line-of-sight fixes; open |
 | Deploy: StrategicOperations `TurnDirector_StartFirstRound::Postfix`, `OnMovePhaseComplete` | 2.5 s, 3 s | open |
 

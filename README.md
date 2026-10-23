@@ -29,7 +29,7 @@ Also:
 
 - **Argo after long missions:** salvage, store, mech lab and mouse-overs no longer get 10–30× slower for the rest of the session.
 - **After-action and salvage screens** no longer spend most of their time searching for the unloaded combat camera.
-- **Urban combat:** kills, aura changes and movement near many buildings froze the game for seconds at a time. The kill freezes are reduced; the latest fixes for deaths and movement are new and their in-game effect is still being measured.
+- **Urban combat:** kills, aura changes and movement near many buildings froze the game for 3–5 s at a time. In a recent urban mission, 16 kills took 0.2–2.2 s each (half of them under 0.4 s); movement stalls are reduced by the same fixes.
 - **Garbage collection freezes** (1–5 s) are moved behind loading screens, at the cost of more RAM (see below).
 - **Saves** use about 1.2 GB less memory each; the last mission's leftovers are released on the Argo.
 
@@ -42,8 +42,6 @@ How each fix works is in [docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md); the measu
 3. Check the memory settings below against your PC's RAM.
 
 The defaults are for normal play: all fixes on, performance monitoring off.
-
-**Upgrading from RTPerf** (the old name): copy your changed settings over, then disable the old mod by renaming `Mods/RTPerf/mod.json` to `mod.json.off` (or delete `Mods/RTPerf`). Both at once would apply everything twice.
 
 **To turn PerfeBT off**, rename `Mods/PerfeBT/mod.json` to `mod.json.off`.
 
@@ -100,11 +98,12 @@ Suggested values by installed RAM (RogueTech itself needs 10–16 GB):
 
 ## For mod authors and contributors
 
+- [docs/BUILDING.md](docs/BUILDING.md): what you need to build the mod from source, and how.
 - [docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md): every fix, diagnostic and the profiler in technical detail, plus the source layout.
 - [docs/FINDINGS.md](docs/FINDINGS.md): profiling results, open slow spots, notes for other mods' authors.
 - [docs/ModTek-upstream-proposals.md](docs/ModTek-upstream-proposals.md): fixes that would fit better in ModTek itself.
 - [CHANGELOG.md](CHANGELOG.md)
 
-**Building:** `PerfeBT.csproj` (net472) references the game's `Managed` assemblies, ModTek's `0Harmony.dll` and CustomComponents. Set `GameDir` in the csproj, then run `dotnet build -c Release`.
+**Building:** needs a game install with ModTek and CustomComponents, the .NET SDK and the .NET Framework 4.7.2 Developer Pack; then run `dotnet build -c Release -p:GameDir=<your BATTLETECH folder>`. Details in [docs/BUILDING.md](docs/BUILDING.md).
 
 **Releasing:** the build needs the game's own files, so releases are built locally rather than on GitHub. With the game installed, a clean working tree and the [GitHub CLI](https://cli.github.com) logged in, run `powershell -ExecutionPolicy Bypass -File scripts/release.ps1 -Tag v1.2.3`. It builds, packs `dist/PerfeBT_v1.2.3.zip`, tags HEAD, pushes the tag and creates the GitHub release with the zip; the notes come from the `## 1.2.3` section of the CHANGELOG. `-DryRun` only builds and packs; `-GameDir` overrides the game folder.

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using BattleTech;
@@ -19,15 +20,17 @@ namespace PerfeBT
     // A trace reads only its arguments and map state: cell heights, terrain masks, design masks, building cells. Two
     // independent parts speed it up:
     //
-    // Memo (LineOfSightRayMemo): inside the outermost call of CombatGameState.Update, AbstractActor.HandleDeath or a
-    // visibility cache rebuild, the result of the original method for the same arguments is remembered and returned
-    // again. Postfixes of other mods still run on the remembered value. The memo is dropped when such a call ends and
-    // whenever map state may change while it runs:
+    // Memo (LineOfSightRayMemo): the result of the original method for the same arguments is remembered and returned
+    // again. Postfixes of other mods still run on the remembered value. Units rarely move between two deaths, so the
+    // same rays to the same buildings are traced again and again; with LineOfSightRayMemoPersist the memo lives across
+    // calls until map state may change, otherwise only inside the outermost call of CombatGameState.Update,
+    // AbstractActor.HandleDeath or a visibility cache rebuild. It is dropped:
     //   - building destroyed (ObstructionGameLogic.BuildingDestroyedUpdateCells): only rays passing near its cells;
-    //   - cells repainted (drop zones, dangerous regions): everything;
-    //   - entering and leaving ActorMovementSequence.Update and the move-preview panels of CombatHUDStatusPanel, where
-    //     CustomAmmoCategories hides design masks, and TurnDirector.EndCurrentRound, after which it ticks fire and
-    //     temporary terrain masks; CustomAmmoCategories' other mask changes run in its own Update, outside the memo.
+    //   - cells repainted (drop zones, dangerous regions), scene load: everything;
+    //   - design masks changed by a registered mask source (RegisterMaskSource, ClearAfter): everything.
+    // While a mask source hides design masks (CustomAmmoCategories does inside the movement update, the move previews
+    // and CustomUnits' AbstractActor.OnPositionUpdate for units unaffected by masks) rays are neither remembered nor
+    // reused. Any other mod patching the design-mask lookups switches the memo off. Only main-thread traces use it.
     // Every VerifyEvery-th reuse is traced again and compared; a difference switches the memo off for the session.
     //
     // Fast trace (LineOfSightFastTrace): the same walk as the original, with the same float operations in the same
@@ -35,6 +38,9 @@ namespace PerfeBT
     // list first and walking it again. Every VerifyEvery-th trace runs the original instead and compares; a difference
     // switches the fast trace off for the session.
     //
+    // Line-of-fire memo (LineOfFireRayMemo): the same memo for bresenhamHeightTest, which LowVisibility's line-of-fire
+    // replacement runs about eight times per unit and target in every visibility rebuild. It reads only cell heights
+    // and building cells and returns a result plus the collision cell; design masks don't affect it.
     // Both stand down if another mod adds a prefix or transpiler to bresenhamVisionTest; the fast trace also if the
     // line or projected-height helpers it reproduces are patched.
     internal static class LineOfSightTrace
@@ -81,6 +87,62 @@ namespace PerfeBT
 
         private const int Store = 1, VerifyMemo = 2, VerifyFast = 4, Done = 8;
         private const int LogMinTraces = 5000;
+        // About 80 bytes per remembered ray; one urban death rebuild traces ~110,000 distinct rays. Per generation.
+        private const int MaxRays = 300000;
+
+        // Two generations: when the current one is full it becomes the old one and the previous old one is dropped;
+        // a ray found in the old generation moves back to the current one. The rays of the current unit positions
+        // stay remembered, those of positions long left fall out.
+        private sealed class RayMemo<T>
+        {
+            internal Dictionary<RayKey, T> Current = new Dictionary<RayKey, T>(), Old = new Dictionary<RayKey, T>();
+
+            internal int Count => Current.Count + Old.Count;
+
+            internal bool TryGetValue(RayKey key, out T value)
+            {
+                if (Current.TryGetValue(key, out value))
+                    return true;
+                if (!Old.TryGetValue(key, out value))
+                    return false;
+                Old.Remove(key);
+                Set(key, value);
+                return true;
+            }
+
+            internal void Set(RayKey key, T value)
+            {
+                if (Current.Count >= MaxRays)
+                {
+                    var dropped = Old;
+                    Old = Current;
+                    dropped.Clear();
+                    Current = dropped;
+                    capped++;
+                }
+                Current[key] = value;
+            }
+
+            internal void Clear()
+            {
+                Current.Clear();
+                Old.Clear();
+            }
+        }
+
+        private struct HeightResult
+        {
+            internal bool Clear;
+            internal Point Collision;
+        }
+
+        private struct HeightState
+        {
+            internal int Flags;
+            internal HeightResult Remembered;
+            internal RayKey Key;
+        }
+
         // A Bresenham line can step one cell past its end point on the minor axis; two cells of margin covers it.
         private const int RayMargin = 2;
 
@@ -89,23 +151,53 @@ namespace PerfeBT
         private static Func<LineOfSight, MapTerrainDataCell, float, float> visCostOfCell;
 
         private static Harmony harmony;
-        private static MethodInfo target;
-        private static bool patched, patchesChecked, memoOn, fastOn;
-        private static int memoVerifyEvery, fastVerifyEvery, memoSinceVerify, fastSinceVerify;
+        private static MethodInfo target, heightTarget;
+        private static bool patched, hooked, patchesChecked, memoOn, fastOn, heightOn, persist;
+        private static int memoVerifyEvery, fastVerifyEvery, heightVerifyEvery, memoSinceVerify, fastSinceVerify, heightSinceVerify, mainThread;
+        private static readonly Dictionary<string, Func<bool>> maskSources = new Dictionary<string, Func<bool>>();
+        private static Func<bool> masksHidden;
 
-        private static readonly Dictionary<RayKey, float> memo = new Dictionary<RayKey, float>();
+        private static readonly RayMemo<float> memo = new RayMemo<float>();
+        private static readonly RayMemo<HeightResult> heightMemo = new RayMemo<HeightResult>();
         private static readonly HashSet<MapTerrainDataCell> pendingCells = new HashSet<MapTerrainDataCell>(new ByReference());
         private static readonly List<RayKey> dropKeys = new List<RayKey>();
         private static readonly List<int> changedX = new List<int>(), changedZ = new List<int>();
         private static int depth;
         private static string windowName;
-        private static long windowStart, windowTraced, windowReused;
-        private static long traced, reused, invalidated, cleared, memoVerified, fastTraces, fastVerified;
+        private static long windowStart, windowTraced, windowReused, windowHeightTraced, windowHeightReused;
+        private static long traced, reused, invalidated, cleared, capped, hiddenTraces, memoVerified, fastTraces, fastVerified;
+        private static long heightTraced, heightReused, heightVerified;
 
-        internal static void ApplyMemo(Harmony h, int verifyEvery)
+        internal static void ApplyMemo(Harmony h, int verifyEvery, bool persistent)
         {
             memoVerifyEvery = verifyEvery;
+            persist = persistent;
             EnsurePatched(h);
+            EnsureHooks(h);
+            memoOn = true;
+        }
+
+        // LineOfSight.bresenhamHeightTest (line of fire): the same memo for the height-only walk, which reads only cell
+        // heights and building cells, not design masks.
+        internal static void ApplyHeightMemo(Harmony h, int verifyEvery, bool persistent)
+        {
+            heightVerifyEvery = verifyEvery;
+            persist = persistent;
+            EnsurePatched(h);
+            EnsureHooks(h);
+            heightTarget = AccessTools.Method(typeof(LineOfSight), "bresenhamHeightTest",
+                               new[] { typeof(Point), typeof(float), typeof(Point), typeof(float), typeof(string), typeof(Point).MakeByRefType() })
+                           ?? throw new MissingMethodException("LineOfSight.bresenhamHeightTest");
+            h.Patch(heightTarget,
+                prefix: new HarmonyMethod(typeof(LineOfSightTrace), nameof(HeightPrefix)) { priority = Priority.First },
+                postfix: new HarmonyMethod(typeof(LineOfSightTrace), nameof(HeightPostfix)) { priority = Priority.First });
+            heightOn = true;
+        }
+
+        private static void EnsureHooks(Harmony h)
+        {
+            if (hooked)
+                return;
             var windows = new[]
             {
                 AccessTools.Method(typeof(CombatGameState), "Update", Type.EmptyTypes),
@@ -119,19 +211,6 @@ namespace PerfeBT
                     prefix: new HarmonyMethod(typeof(LineOfSightTrace), nameof(Enter)) { priority = Priority.First },
                     finalizer: new HarmonyMethod(typeof(LineOfSightTrace), nameof(Leave)) { priority = Priority.Last });
 
-            var breakers = new List<MethodBase>
-            {
-                AccessTools.Method(typeof(ActorMovementSequence), "Update", Type.EmptyTypes),
-                AccessTools.Method(typeof(TurnDirector), "EndCurrentRound", Type.EmptyTypes),
-            };
-            foreach (var m in AccessTools.GetDeclaredMethods(typeof(CombatHUDStatusPanel)))
-                if (m.Name == "ShowPreviewMoveIndicators" || m.Name == "ShowPreviewStatuses")
-                    breakers.Add(m);
-            foreach (var b in breakers)
-                h.Patch(b ?? throw new MissingMethodException("line-of-sight memo breaker"),
-                    prefix: new HarmonyMethod(typeof(LineOfSightTrace), nameof(Break)) { priority = Priority.Last },
-                    finalizer: new HarmonyMethod(typeof(LineOfSightTrace), nameof(BreakAfter)) { priority = Priority.Last });
-
             var repaints = new[]
             {
                 AccessTools.Method(typeof(DropshipGameLogic), "MarkDropshipLandingZone", new[] { typeof(bool) }),
@@ -141,12 +220,19 @@ namespace PerfeBT
             };
             foreach (var r in repaints)
                 h.Patch(r ?? throw new MissingMethodException("line-of-sight memo repaint"),
-                    finalizer: new HarmonyMethod(typeof(LineOfSightTrace), nameof(BreakAfter)) { priority = Priority.Last });
+                    finalizer: new HarmonyMethod(typeof(LineOfSightTrace), nameof(ClearAfter)) { priority = Priority.Last });
 
             h.Patch(AccessTools.Method(typeof(ObstructionGameLogic), "BuildingDestroyedUpdateCells", Type.EmptyTypes)
                     ?? throw new MissingMethodException("ObstructionGameLogic.BuildingDestroyedUpdateCells"),
                 finalizer: new HarmonyMethod(typeof(LineOfSightTrace), nameof(BuildingDestroyed)) { priority = Priority.Last });
-            memoOn = true;
+            hooked = true;
+        }
+
+        // A mod whose patches on the design-mask lookups make design masks change at runtime. It must clear the memo
+        // (ClearAfter as finalizer) after every change; hidden reports whether it currently hides design masks (null: never).
+        internal static void RegisterMaskSource(string assembly, Func<bool> hidden)
+        {
+            maskSources[assembly] = hidden;
         }
 
         internal static void ApplyFastTrace(Harmony h, int verifyEvery)
@@ -167,6 +253,7 @@ namespace PerfeBT
             target = AccessTools.Method(typeof(LineOfSight), "bresenhamVisionTest",
                          new[] { typeof(Point), typeof(float), typeof(Point), typeof(float), typeof(Vector3), typeof(string) })
                      ?? throw new MissingMethodException("LineOfSight.bresenhamVisionTest");
+            mainThread = System.Threading.Thread.CurrentThread.ManagedThreadId;
             h.Patch(target,
                 prefix: new HarmonyMethod(typeof(LineOfSightTrace), nameof(Prefix)) { priority = Priority.First },
                 postfix: new HarmonyMethod(typeof(LineOfSightTrace), nameof(Postfix)) { priority = Priority.First });
@@ -178,6 +265,13 @@ namespace PerfeBT
         private static void CheckPatches()
         {
             patchesChecked = true;
+            if (heightOn && heightTarget != null)
+                foreach (var note in ForeignPatches(Harmony.GetPatchInfo(heightTarget)))
+                {
+                    heightOn = false;
+                    Log.Write($"[losray] bresenhamHeightTest also has {note}; line-of-fire memo off");
+                    break;
+                }
             var info = Harmony.GetPatchInfo(target);
             if (info == null)
                 return;
@@ -200,6 +294,8 @@ namespace PerfeBT
                     memoOn = false;
                     Log.Write($"[losray] postfix {p.owner} runs before the memo's; memo off");
                 }
+            if (memoOn)
+                CheckMaskSources();
             if (!fastOn)
                 return;
             foreach (var reproduced in new[]
@@ -217,47 +313,107 @@ namespace PerfeBT
             }
         }
 
+        // Patches of other mods that would see or change the original's result before the memo's postfix.
+        private static IEnumerable<string> ForeignPatches(Patches info)
+        {
+            if (info == null)
+                yield break;
+            foreach (var p in info.Prefixes.Concat(info.Transpilers))
+                if (p.owner != harmony.Id)
+                    yield return $"{p.owner} ({p.PatchMethod.Name})";
+            foreach (var p in info.Postfixes)
+                if (p.owner != harmony.Id && p.priority >= Priority.First)
+                    yield return $"postfix {p.owner} running first";
+        }
+
+        // The memo is only safe if every patch on the design-mask lookups comes from a registered mask source.
+        private static void CheckMaskSources()
+        {
+            var own = typeof(LineOfSightTrace).Assembly;
+            var hidden = new List<Func<bool>>();
+            foreach (var lookup in new MethodBase[]
+                     {
+                         AccessTools.Method(typeof(LineOfSight), "visCostOfCell", new[] { typeof(MapTerrainDataCell), typeof(float) }),
+                         AccessTools.Method(typeof(MapMetaData), "GetPriorityDesignMask", new[] { typeof(MapTerrainDataCell) }),
+                         AccessTools.Method(typeof(MapMetaData), "GetPriorityTerrainMaskFlags", new[] { typeof(MapTerrainDataCell) }),
+                     })
+            {
+                var info = lookup == null ? null : Harmony.GetPatchInfo(lookup);
+                if (info == null)
+                    continue;
+                foreach (var p in info.Prefixes.Concat(info.Postfixes).Concat(info.Transpilers).Concat(info.Finalizers))
+                {
+                    var asm = p.PatchMethod.DeclaringType?.Assembly;
+                    if (asm == own)
+                        continue;
+                    var name = asm?.GetName().Name ?? p.owner;
+                    if (!maskSources.TryGetValue(name, out var h))
+                    {
+                        memoOn = false;
+                        Log.Write($"[losray] {lookup.Name} is patched by {name}, which is not a known design-mask source; memo off");
+                        return;
+                    }
+                    if (h != null && !hidden.Contains(h))
+                        hidden.Add(h);
+                }
+            }
+            if (hidden.Count == 1)
+                masksHidden = hidden[0];
+            else if (hidden.Count > 1)
+                masksHidden = () => hidden.Exists(f => f());
+        }
+
         private static void Enter(MethodBase __originalMethod)
         {
             if (depth++ > 0)
                 return;
-            memo.Clear();
-            pendingCells.Clear();
+            if (!persist)
+            {
+                memo.Clear();
+                heightMemo.Clear();
+                pendingCells.Clear();
+            }
             windowName = __originalMethod.DeclaringType?.Name + "." + __originalMethod.Name;
             windowStart = Stopwatch.GetTimestamp();
-            windowTraced = windowReused = 0;
+            windowTraced = windowReused = windowHeightTraced = windowHeightReused = 0;
         }
 
         private static Exception Leave(Exception __exception)
         {
             if (--depth > 0)
                 return __exception;
-            memo.Clear();
-            pendingCells.Clear();
-            if (windowTraced + windowReused >= LogMinTraces)
-                Log.Write($"[losray] {windowName}: {windowTraced} rays traced, {windowReused} reused, " +
-                          $"{(Stopwatch.GetTimestamp() - windowStart) * 1000.0 / Stopwatch.Frequency:F0} ms");
+            if (!persist)
+            {
+                memo.Clear();
+                heightMemo.Clear();
+                pendingCells.Clear();
+            }
+            if (windowTraced + windowReused + windowHeightTraced + windowHeightReused >= LogMinTraces)
+                Log.Write($"[losray] {windowName}: {windowTraced} rays traced, {windowReused} reused; line of fire {windowHeightTraced} traced, " +
+                          $"{windowHeightReused} reused; {(Stopwatch.GetTimestamp() - windowStart) * 1000.0 / Stopwatch.Frequency:F0} ms");
             return __exception;
         }
 
-        private static void Break()
+        // Drops every remembered ray; for mask sources after they change design masks.
+        internal static void Clear()
         {
-            if (depth == 0 || memo.Count == 0)
+            if (memo.Count == 0 && heightMemo.Count == 0)
                 return;
             memo.Clear();
+            heightMemo.Clear();
             pendingCells.Clear();
             cleared++;
         }
 
-        private static Exception BreakAfter(Exception __exception)
+        internal static Exception ClearAfter(Exception __exception)
         {
-            Break();
+            Clear();
             return __exception;
         }
 
         private static Exception BuildingDestroyed(ObstructionGameLogic __instance, Exception __exception)
         {
-            if (depth == 0 || memo.Count == 0 || __instance.occupiedCells == null)
+            if (memo.Count + heightMemo.Count == 0 || __instance.occupiedCells == null)
                 return __exception;
             foreach (var cell in __instance.occupiedCells)
                 if (cell?.relatedTerrainCell != null)
@@ -282,9 +438,20 @@ namespace PerfeBT
                             changedZ.Add(z);
                         }
             }
+            var dropped = DropNear(memo, los) + DropNear(heightMemo, los);
+            Log.Write($"[losray] building destroyed: {pendingCells.Count} cells, " +
+                      $"{dropped} of {memo.Count + heightMemo.Count + dropped} remembered rays dropped");
+            invalidated += dropped;
+            pendingCells.Clear();
+        }
+
+        private static int DropNear<T>(RayMemo<T> rays, LineOfSight los) => DropNear(rays.Current, los) + DropNear(rays.Old, los);
+
+        private static int DropNear<T>(Dictionary<RayKey, T> rays, LineOfSight los)
+        {
             var unplaced = changedX.Count == 0;
             dropKeys.Clear();
-            foreach (var key in memo.Keys)
+            foreach (var key in rays.Keys)
             {
                 if (unplaced || !ReferenceEquals(key.Los, los))
                 {
@@ -301,21 +468,84 @@ namespace PerfeBT
                     }
             }
             foreach (var key in dropKeys)
-                memo.Remove(key);
-            Log.Write($"[losray] building destroyed during a trace window: {pendingCells.Count} cells, " +
-                      $"{dropKeys.Count} of {memo.Count + dropKeys.Count} remembered rays dropped");
-            invalidated += dropKeys.Count;
+                rays.Remove(key);
+            var count = dropKeys.Count;
             dropKeys.Clear();
-            pendingCells.Clear();
+            return count;
+        }
+
+        private static bool HeightPrefix(LineOfSight __instance, Point __0, float __1, Point __2, float __3, string __4,
+            ref Point __5, ref bool __result, out HeightState __state)
+        {
+            __state = default;
+            if (System.Threading.Thread.CurrentThread.ManagedThreadId != mainThread)
+                return true;
+            if (!patchesChecked)
+                CheckPatches();
+            if (!heightOn || !persist && depth == 0)
+                return true;
+            if (pendingCells.Count > 0)
+                DropPendingRays(__instance);
+            __state.Key = new RayKey { Los = __instance, X0 = __0.X, Z0 = __0.Z, X1 = __2.X, Z1 = __2.Z, H0 = __1, H1 = __3, Target = __4 };
+            if (!heightMemo.TryGetValue(__state.Key, out var remembered))
+            {
+                __state.Flags = Store;
+                return true;
+            }
+            if (heightVerifyEvery > 0 && ++heightSinceVerify >= heightVerifyEvery)
+            {
+                heightSinceVerify = 0;
+                __state.Flags = VerifyMemo;
+                __state.Remembered = remembered;
+                return true;
+            }
+            heightReused++;
+            windowHeightReused++;
+            __result = remembered.Clear;
+            __5 = remembered.Collision;
+            __state.Flags = Done;
+            return false;
+        }
+
+        private static void HeightPostfix(bool __result, Point __5, HeightState __state)
+        {
+            if (!heightOn || (__state.Flags & Done) != 0)
+                return;
+            var value = new HeightResult { Clear = __result, Collision = __5 };
+            if ((__state.Flags & Store) != 0)
+            {
+                heightMemo.Set(__state.Key, value);
+                heightTraced++;
+                windowHeightTraced++;
+            }
+            else if ((__state.Flags & VerifyMemo) != 0)
+            {
+                var r = __state.Remembered;
+                if (r.Clear == value.Clear && r.Collision.X == value.Collision.X && r.Collision.Z == value.Collision.Z)
+                {
+                    heightVerified++;
+                    return;
+                }
+                heightOn = false;
+                heightMemo.Clear();
+                var k = __state.Key;
+                Log.Write($"[losray] line-of-fire memo verification: ({k.X0},{k.Z0}) -> ({k.X1},{k.Z1}) target {k.Target}: remembered " +
+                          $"{r.Clear} at ({r.Collision.X},{r.Collision.Z}), traced again {value.Clear} at ({value.Collision.X},{value.Collision.Z}); " +
+                          "line-of-fire memo switched off for this session");
+            }
         }
 
         private static bool Prefix(LineOfSight __instance, Point __0, float __1, Point __2, float __3, Vector3 __4, string __5,
             ref float __result, out State __state)
         {
             __state = default;
+            if (System.Threading.Thread.CurrentThread.ManagedThreadId != mainThread)
+                return true;
             if (!patchesChecked)
                 CheckPatches();
-            if (memoOn && depth > 0)
+            if (memoOn && (persist || depth > 0) && masksHidden != null && masksHidden())
+                hiddenTraces++;
+            else if (memoOn && (persist || depth > 0))
             {
                 if (pendingCells.Count > 0)
                     DropPendingRays(__instance);
@@ -380,11 +610,11 @@ namespace PerfeBT
 
         private static void Finish(ref State state, float value)
         {
-            if (!memoOn || depth == 0)
+            if (!memoOn)
                 return;
             if ((state.Flags & Store) != 0)
             {
-                memo[state.Key] = value;
+                memo.Set(state.Key, value);
                 traced++;
                 windowTraced++;
             }
@@ -513,11 +743,17 @@ namespace PerfeBT
 
         private static void Summary(string scene)
         {
-            if (traced + reused + fastTraces == 0)
+            memo.Clear();
+            heightMemo.Clear();
+            pendingCells.Clear();
+            if (traced + reused + fastTraces + heightTraced + heightReused == 0)
                 return;
             Log.Write($"[losray] scene {scene}: memo {reused} of {traced + reused} rays reused, {invalidated} dropped for destroyed buildings, " +
-                      $"{cleared} clears, {memoVerified} verified{(memoOn ? "" : " (off)")}; fast trace {fastTraces} rays, {fastVerified} verified{(fastOn ? "" : " (off)")}");
-            traced = reused = invalidated = cleared = memoVerified = fastTraces = fastVerified = 0;
+                      $"{cleared} clears, {capped} size limits, {hiddenTraces} traces with design masks hidden, {memoVerified} verified{(memoOn ? "" : " (off)")}; " +
+                      $"fast trace {fastTraces} rays, {fastVerified} verified{(fastOn ? "" : " (off)")}; " +
+                      $"line of fire {heightReused} of {heightTraced + heightReused} reused, {heightVerified} verified{(heightOn ? "" : " (off)")}");
+            traced = reused = invalidated = cleared = capped = hiddenTraces = memoVerified = fastTraces = fastVerified = 0;
+            heightTraced = heightReused = heightVerified = 0;
         }
     }
 }

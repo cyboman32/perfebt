@@ -161,6 +161,28 @@ namespace PerfeBT
         public bool LineOfSightRayMemo = true;
         public int LineOfSightRayMemoVerifyEvery = 64;
 
+        // Keeps the line-of-sight memo across calls until the map may change (building destroyed, cells repainted,
+        // CustomAmmoCategories design-mask change, round end) instead of dropping it after each update, death or
+        // rebuild: units rarely move between two deaths, so each death traced the same ~100,000 rays to the buildings
+        // again. Only with LineOfSightRayMemo.
+        public bool LineOfSightRayMemoPersist = true;
+
+        // The same memo for LineOfSight.bresenhamHeightTest, the height-only walk behind line of fire: after the sight
+        // lines were remembered, LowVisibility's GetLineOfFireUncached (0.13 ms per call, ~8 of these walks each, one
+        // call per unit and target in every death rebuild) was most of a death freeze. Reads only cell heights and
+        // building cells, so it is dropped only for destroyed buildings, repaints and scene loads; kept across calls
+        // with LineOfSightRayMemoPersist. Every LineOfFireRayMemoVerifyEvery-th reuse is traced again and compared.
+        public bool LineOfFireRayMemo = true;
+        public int LineOfFireRayMemoVerifyEvery = 64;
+
+        // LowVisibility's GetLineOfFireUncached prefix copies and sorts the whole actor list on every call but reads it
+        // only for actor targets; with every ray cached that was still ~0.07 ms per call, ~0.8 s per urban death (one
+        // call per unit and building). For building targets the rest of that prefix runs here without the list. Only
+        // for the LowVisibility build it was written against; every LowVisibilityLineOfFireVerifyEvery-th call is
+        // compared with LowVisibility's own result.
+        public bool LowVisibilityLineOfFire = true;
+        public int LowVisibilityLineOfFireVerifyEvery = 64;
+
         // The same ray walk without building the shared point list and walking it again, with the original's float
         // operations and calls. Every LineOfSightFastTraceVerifyEvery-th ray runs the original and compares (0 =
         // never); a difference switches it off for the session.
@@ -286,7 +308,7 @@ namespace PerfeBT
                 LoadGcPause = false;
                 LoadingScreenFix = ReleaseCombatLeftovers = ExitFast = LayoutFastPath = SaveAlloc = false;
                 UiListPoolTrim = DelayedStartIndex = FindObjectMissCache = VisibilityRebuildMemo = false;
-                LineOfSightRayMemo = LineOfSightFastTrace = false;
+                LineOfSightRayMemo = LineOfSightRayMemoPersist = LineOfSightFastTrace = LineOfFireRayMemo = LowVisibilityLineOfFire = false;
                 UnloadSkipSites = new List<string>();
                 UnloadDeferSites = new List<string>();
                 EmptySceneAdditive = false;
