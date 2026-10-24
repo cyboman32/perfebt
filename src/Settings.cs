@@ -83,15 +83,16 @@ namespace PerfeBT
         // Garbage collection timing. Every Boehm collection marks the whole live heap (3-5.5 s in RogueTech) and cannot
         // be shortened, only moved. LoadGcPause: collector off during level transitions; one collection on the frame
         // after the target scene loads, behind the loading curtain (skipped when less than GcLoadCollectMinMb was
-        // allocated since the last one). GcBudgetMb > 0: collector also off during play, collecting only after that
-        // much growth (extra RAM up to about GcBudgetMb). GcBudgetMb = 0: normal collections in play; GcPauseMaxGrowthMb
-        // caps growth during a load. GcMinFreeMemoryMb > 0: while the collector is off, also collect when the PC's
-        // free RAM or free commit (RAM + page file) drops below that many MB. Memory timing only.
+        // allocated since the last one). GcBudgetMb: collector also off during play, collecting only after that much
+        // growth (extra RAM up to about GcBudgetMb); off = normal collections in play, with GcPauseMaxGrowthMb capping
+        // growth during a load. GcMinFreeMemoryMb: while the collector is off, also collect when the PC's free RAM or
+        // free commit (RAM + page file) drops below that many MB. For these three, 0 = derived from installed RAM
+        // (LoadGcPause.Auto), negative = off. Memory timing only.
         public bool LoadGcPause = true;
-        public long GcBudgetMb = 14000;
+        public long GcBudgetMb = 0;
         public long GcLoadCollectMinMb = 2000;
-        public long GcPauseMaxGrowthMb = 12000;
-        public long GcMinFreeMemoryMb = 3000;
+        public long GcPauseMaxGrowthMb = 0;
+        public long GcMinFreeMemoryMb = 0;
 
         // Diagnostic: during level transitions log curtain/camera/scene changes ([screen] lines) and save a screenshot
         // every TransitionWatchShotSeconds to reports/screens/<ts>/ (to locate the black screen).

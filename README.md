@@ -39,7 +39,7 @@ How each fix works is in [docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md); the measu
 
 1. Download `PerfeBT_<version>.zip` from the [Releases](https://github.com/cyboman32/perfebt/releases) page.
 2. Extract it into `BATTLETECH/Mods/`. You get `Mods/PerfeBT/` with `PerfeBT.dll`, `mod.json` and this README.
-3. Check the memory settings below against your PC's RAM.
+3. Nothing to tune for memory: the memory settings follow your PC's installed RAM (see below).
 
 The defaults are for normal play: all fixes on, performance monitoring off.
 
@@ -64,26 +64,32 @@ The game pauses completely while it frees unused memory ("garbage collection"). 
 
 PerfeBT moves these pauses behind loading screens and lets the game grow by up to `GcBudgetMb` MB during play before pausing. **The tradeoff is fewer freezes for more RAM use.** If your PC runs low on free memory, PerfeBT frees memory early anyway.
 
+The three RAM-dependent settings default to `0` = **automatic**: PerfeBT reads your installed RAM at startup and writes the values it picked to `PerfeBT.log` (`[gc] RAM … MB: budget … (auto)`). Set a number to override one, or a negative number (`-1`) to switch it off.
+
 | Setting | Default | What it does |
 |---|---|---|
 | `LoadGcPause` | `true` | `false` restores the game's normal behaviour (and ignores the rest of this table). |
-| `GcBudgetMb` | `14000` | How many MB the game may grow during play before it pauses to free memory. `0` = normal pauses during play; only loading screens are covered. |
-| `GcMinFreeMemoryMb` | `3000` | Free memory early when your PC has less than this many MB free. `0` = off (not recommended). |
+| `GcBudgetMb` | `0` (auto) | How many MB the game may grow during play before it pauses to free memory. `-1` = normal pauses during play; only loading screens are covered. |
+| `GcMinFreeMemoryMb` | `0` (auto) | Free memory early when your PC has less than this many MB free. `-1` = off (not recommended). |
+| `GcPauseMaxGrowthMb` | `0` (auto) | Only without a `GcBudgetMb`: the most a single load may grow before memory is freed anyway. `-1` = no limit. |
 | `GcLoadCollectMinMb` | `2000` | Free memory at the end of a loading screen only if the game grew at least this much. |
-| `GcPauseMaxGrowthMb` | `12000` | Only with `GcBudgetMb` 0: the most a single load may grow before memory is freed anyway. |
 
-Suggested values by installed RAM (RogueTech itself needs 10–16 GB):
+Automatic values (RogueTech itself needs 10–16 GB):
 
 | PC RAM | `GcBudgetMb` | `GcPauseMaxGrowthMb` | `GcMinFreeMemoryMb` |
 |---|---|---|---|
-| 16 GB | `0`, or `LoadGcPause: false` if loads fail | `4000` | `2000` |
-| 32 GB | `8000`–`10000` | `8000` | `3000` |
-| 64 GB or more | `14000`–`18000` | `12000` | `3000` |
+| 16 GB | off (normal pauses during play) | `4000` | `2000` |
+| 24 GB | off | `6000` | `3000` |
+| 32 GB | `8000` | `8000` | `3000` |
+| 48 GB or more | `14000` | `12000` | `3000` |
+
+The budget is the RAM above 24,000 MB (rounded down to 1000, at most 14000); the load limit is a quarter of the RAM, between 4000 and 12000.
 
 - Urban warfare maps use the most memory: with 8000 MB, a 17-minute urban mission still paused twice for 4–6 s.
 - Have a page file on an SSD ("System managed size" is fine). It prevents out-of-memory crashes if RAM runs short.
 - Lower `GcBudgetMb` if your PC gets sluggish during long missions or other programs start swapping.
 - Raise it if you have spare RAM and still see 3–5 s freezes in missions.
+- Turn off working-set cleaners (RogueTech's optional `VMMWSGC`, memory "optimizer" tools). They push the game's memory to the page file, and the next pause reads all of it back (a 2 s pause became 94 s on a 32 GB PC).
 
 ## Troubleshooting
 

@@ -71,10 +71,7 @@ namespace PerfeBT
                 });
             if (s.LoadGcPause)
             {
-                LoadGcPause.BudgetMb = s.GcBudgetMb;
-                LoadGcPause.MaxGrowthMb = s.GcPauseMaxGrowthMb;
-                LoadGcPause.LoadCollectMinMb = s.GcLoadCollectMinMb;
-                LoadGcPause.MinFreeMemoryMb = s.GcMinFreeMemoryMb;
+                LoadGcPause.Configure(s.GcBudgetMb, s.GcPauseMaxGrowthMb, s.GcLoadCollectMinMb, s.GcMinFreeMemoryMb);
                 ApplyGuarded("LoadGcPause", () => LoadGcPause.Apply(harmony));
             }
             if (s.UnloadDiagnostics || s.UnloadSkipSites.Count > 0 || s.UnloadDeferSites.Count > 0 || s.EmptySceneAdditive)

@@ -11,19 +11,63 @@ namespace PerfeBT
     // only moved, so this controls when they happen (mono_unity_gc_disable/enable is a nesting counter):
     //   - From the "Loading" scene request the collector is off; one collection runs on the frame after the target
     //     scene's Single load completes, while the loading curtain is still up.
-    //   - GcBudgetMb > 0: the collector also stays off during play; a collection runs only when used memory has grown
-    //     GcBudgetMb since the last one. GcBudgetMb = 0: normal collection resumes after the end-of-load collection.
-    //   - During a load with GcBudgetMb = 0, GcPauseMaxGrowthMb caps growth the same way.
-    //   - GcMinFreeMemoryMb > 0: while the collector is off, a collection also runs when the PC's free RAM or free
-    //     commit (RAM + page file) drops below that many MB, at most once per 1000 MB of further growth.
+    //   - With a play budget (GcBudgetMb) the collector also stays off during play; a collection runs only when used
+    //     memory has grown that much since the last one. Without one, normal collection resumes after the end-of-load
+    //     collection, and GcPauseMaxGrowthMb caps growth during a load the same way.
+    //   - With a low-memory threshold (GcMinFreeMemoryMb), while the collector is off, a collection also runs when the
+    //     PC's free RAM or free commit (RAM + page file) drops below it, at most once per 1000 MB of further growth.
+    // Settings: 0 = derived from the PC's installed RAM (Auto), a negative value = off, a positive value = used as is.
     // Memory timing only: objects become collectable at the same points; they are only freed later. While the
     // collector is off, explicit GC.Collect calls from other mods do nothing.
     internal static class LoadGcPause
     {
-        internal static long BudgetMb = 8000;
-        internal static long MaxGrowthMb = 12000;
-        internal static long LoadCollectMinMb = 2000;
-        internal static long MinFreeMemoryMb = 3000;
+        // Resolved values: BudgetMb <= 0 = normal collections in play, MaxGrowthMb <= 0 = no cap during a load,
+        // MinFreeMemoryMb <= 0 = no low-memory check.
+        internal static long BudgetMb;
+        internal static long MaxGrowthMb;
+        internal static long LoadCollectMinMb;
+        internal static long MinFreeMemoryMb;
+        private static string configLog = "";
+
+        internal struct GcValues
+        {
+            public long BudgetMb, MaxGrowthMb, MinFreeMemoryMb;
+        }
+
+        // Values by installed RAM (the module size, e.g. 32768 for 32 GB; Windows sees a little less). RogueTech itself
+        // takes 10-16 GB and Windows plus other programs a few more, so the play budget is what is left above 24000 MB,
+        // capped at 14000 (an urban mission collected twice in play with 8000). At 24 GB or less there is no room for a
+        // budget: normal collections in play. A single load may grow by a quarter of RAM (4000-12000). The low-memory
+        // threshold is 2000 MB under 24 GB, else 3000. totalRamMb <= 0 (unknown) gets the smallest PC's values.
+        internal static GcValues Auto(long totalRamMb)
+        {
+            if (totalRamMb <= 0)
+                totalRamMb = 16 * 1024;
+            return new GcValues
+            {
+                BudgetMb = Math.Min(Math.Max(totalRamMb - 24000, 0), 14000) / 1000 * 1000,
+                MaxGrowthMb = Math.Min(Math.Max(totalRamMb / 4 / 1000 * 1000, 4000), 12000),
+                MinFreeMemoryMb = totalRamMb < 24 * 1024 ? 2000 : 3000,
+            };
+        }
+
+        internal static void Configure(long budgetMb, long maxGrowthMb, long loadCollectMinMb, long minFreeMemoryMb)
+        {
+            var ramMb = TotalRamMb();
+            var auto = Auto(ramMb);
+            BudgetMb = Pick(budgetMb, auto.BudgetMb);
+            MaxGrowthMb = Pick(maxGrowthMb, auto.MaxGrowthMb);
+            LoadCollectMinMb = loadCollectMinMb;
+            MinFreeMemoryMb = Pick(minFreeMemoryMb, auto.MinFreeMemoryMb);
+            configLog = $"[gc] RAM {(ramMb > 0 ? ramMb + " MB" : "unknown")}: budget {Describe(BudgetMb, budgetMb)}, " +
+                        $"load growth cap {Describe(MaxGrowthMb, maxGrowthMb)}, low-memory threshold {Describe(MinFreeMemoryMb, minFreeMemoryMb)}";
+        }
+
+        private static long Pick(long configured, long auto) => configured == 0 ? auto : Math.Max(configured, 0);
+
+        private static string Describe(long value, long configured) =>
+            (value > 0 ? value + " MB" : "off") + (configured == 0 ? " (auto)" : " (set)");
+
         private static float nextMemoryCheck;
         private static long lowMemoryUsedMb = -1; // used after the last low-memory collection
 
@@ -52,6 +96,7 @@ namespace PerfeBT
             UnityEngine.Object.DontDestroyOnLoad(go);
             go.AddComponent<LoadGcPauseClock>();
 
+            Log.Write(configLog);
             if (BudgetMb > 0)
             {
                 Off();
@@ -148,6 +193,24 @@ namespace PerfeBT
 
         [System.Runtime.InteropServices.DllImport("kernel32.dll")]
         private static extern bool GlobalMemoryStatusEx(ref MemoryStatusEx status);
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll")]
+        private static extern bool GetPhysicallyInstalledSystemMemory(out ulong totalKb);
+
+        // Installed RAM from the firmware tables; what Windows can use (TotalPhys) where those are unavailable (VMs).
+        internal static long TotalRamMb()
+        {
+            try
+            {
+                if (GetPhysicallyInstalledSystemMemory(out var kb) && kb > 0)
+                    return (long)(kb / 1024);
+            }
+            catch (EntryPointNotFoundException)
+            {
+            }
+            var s = new MemoryStatusEx { Length = (uint)System.Runtime.InteropServices.Marshal.SizeOf(typeof(MemoryStatusEx)) };
+            return GlobalMemoryStatusEx(ref s) ? (long)(s.TotalPhys / 1048576) : 0;
+        }
 
         private static void FreeMemory(out long ramMb, out long commitMb)
         {

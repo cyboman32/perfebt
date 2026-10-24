@@ -2,6 +2,7 @@
 
 ## Unreleased
 - Source split: fixes for RogueTech's mods moved from `src/` to `src/RogueTech/`; `src/` keeps diagnostics, the profiler, settings and wiring. No behavior change.
+- Memory settings follow the PC's RAM: `GcBudgetMb`, `GcPauseMaxGrowthMb` and `GcMinFreeMemoryMb` default to `0` = automatic from installed RAM (16 GB: no play budget, 4000, 2000; 32 GB: 8000, 8000, 3000; 48 GB or more: 14000, 12000, 3000), logged as `[gc] RAM … MB: …` at startup. A positive value overrides; `-1` switches the setting off (before, `0` did that for `GcBudgetMb` and `GcMinFreeMemoryMb`). A 32 GB PC running the shipped 14000 / 12000 had 53–238 MB RAM free late in a session, a low-memory collection every 1–2 minutes in missions and one 94 s collection that paged the heap back in.
 
 ## 0.9.1
 - `LineOfSightRayMemo` fix: CustomUnits' `AbstractActor.OnPositionUpdate` hides design masks while units unaffected by them (hover and VTOL vehicles) move, and the memo was not cleared around it. Rays traced with masks hidden could be reused for other units in the same frame (and the other way round), so their visibility could be computed from the wrong design masks. Rays are now neither remembered nor reused while CustomAmmoCategories' `bHIDE_DESIGN_MASK_FLAG` is set, wherever it is set.
