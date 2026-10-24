@@ -37,6 +37,8 @@ How each fix works is in [docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md); the measu
 
 ## Install
 
+> **Online competitions:** in RogueTech and BTAU, adding PerfeBT to your install disqualifies you from their online competition play. Don't install it, or remove it, if you take part.
+
 1. Download `PerfeBT_<version>.zip` from the [Releases](https://github.com/cyboman32/perfebt/releases) page.
 2. Extract it into `BATTLETECH/Mods/`. You get `Mods/PerfeBT/` with `PerfeBT.dll`, `mod.json` and this README.
 3. Nothing to tune for memory: the memory settings follow your PC's installed RAM (see below).

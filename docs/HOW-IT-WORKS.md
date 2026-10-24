@@ -112,6 +112,10 @@ Overhead is roughly 1–2 µs per instrumented call. Patterns that hit per-frame
 
 ## Source layout
 
-- `src/ModTek/`: fixes for vanilla BattleTech, Unity and Mono code only, meant to move into ModTek. They depend on nothing else in PerfeBT except `Log`; settings arrive as parameters from `Fixes.cs`, and extensions come in through hooks (`UnloadGate.AddSite`, `LoadGcPause.AfterCollect`, `LineOfSightTrace.RegisterMaskSource`).
+Fixes in the first three folders patch only vanilla code and are candidates to move upstream. They depend on nothing else in PerfeBT except `Log` (and each other within a folder); settings arrive as parameters from `Fixes.cs`, and extensions come in through hooks (`UnloadGate.AddSite`, `LoadGcPause.AfterCollect`, `LineOfSightTrace.RegisterMaskSource`).
+
+- `src/ModTek/`: fixes for BattleTech's own code (`Assembly-CSharp`, HBS libraries, the game's SQLite access), meant to move into ModTek.
+- `src/Unity/`: fixes for the Unity engine: Unity UI (`LayoutFastPath`, `UiListPoolTrim`), native `UnityPlayer.dll` internals (`DelayedStartIndex`, `UnityPlayerBuild`) and process shutdown (`ExitFast`).
+- `src/Mono/`: the Mono runtime's garbage collector (`LoadGcPause`) and its native API (`MonoApi`), plus process memory counters (`ProcMem`).
 - `src/RogueTech/`: fixes for specific RogueTech mods (CustomComponents, CustomUnits, CustomFilters, CustomMaps, CustomAmmoCategories, MissionControl, IRBTModUtils, LowVisibility). They bind mod types by name or are reached only through `Fixes.ApplyGuarded`, so a missing or changed mod disables the fix instead of PerfeBT.
 - `src/`: diagnostics, the profiler, settings and the wiring in `Fixes.cs`.

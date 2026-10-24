@@ -1,7 +1,7 @@
 # Changelog
 
 ## Unreleased
-- Source split: fixes for RogueTech's mods moved from `src/` to `src/RogueTech/`; `src/` keeps diagnostics, the profiler, settings and wiring. No behavior change.
+- Source split: fixes for RogueTech's mods moved from `src/` to `src/RogueTech/`; Unity engine fixes (DelayedStartIndex, UnityPlayerBuild, LayoutFastPath, UiListPoolTrim, ExitFast) from `src/ModTek/` to `src/Unity/`; Mono runtime code (LoadGcPause, MonoApi, ProcMem) to `src/Mono/`. `src/ModTek/` keeps fixes for the game's own code; `src/` keeps diagnostics, the profiler, settings and wiring. No behavior change.
 - Memory settings follow the PC's RAM: `GcBudgetMb`, `GcPauseMaxGrowthMb` and `GcMinFreeMemoryMb` default to `0` = automatic from installed RAM (16 GB: no play budget, 4000, 2000; 32 GB: 8000, 8000, 3000; 48 GB or more: 14000, 12000, 3000), logged as `[gc] RAM … MB: …` at startup. A positive value overrides; `-1` switches the setting off (before, `0` did that for `GcBudgetMb` and `GcMinFreeMemoryMb`). A 32 GB PC running the shipped 14000 / 12000 had 53–238 MB RAM free late in a session, a low-memory collection every 1–2 minutes in missions and one 94 s collection that paged the heap back in.
 
 ## 0.9.1
