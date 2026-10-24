@@ -1,7 +1,7 @@
 {
   "Name": "PerfeBT",
   "Enabled": true,
-  "Version": "0.9.1",
+  "Version": "0.9.2",
   "Author": "local",
   "Description": "Performance fixes for BattleTech with RogueTech, plus optional performance monitoring (profiler, hitch log, per-segment reports in Mods/PerfeBT/reports). Optimizations=false turns every fix off; PerformanceMonitoring=true turns the diagnostics on (Ctrl+Shift+P writes a report on demand).",
   "DLL": "PerfeBT.dll",
