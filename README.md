@@ -109,7 +109,7 @@ The budget is the RAM above 24,000 MB (rounded down to 1000, at most 14000); the
 - [docs/BUILDING.md](docs/BUILDING.md): what you need to build the mod from source, and how.
 - [docs/HOW-IT-WORKS.md](docs/HOW-IT-WORKS.md): every fix, diagnostic and the profiler in technical detail, plus the source layout.
 - [docs/FINDINGS.md](docs/FINDINGS.md): profiling results, open slow spots, notes for other mods' authors.
-- [docs/ModTek-upstream-proposals.md](docs/ModTek-upstream-proposals.md): fixes that would fit better in ModTek itself.
+- [docs/ModTek-upstream-proposals.md](docs/ModTek-upstream-proposals.md): findings that touch ModTek's code, with how well each is measured.
 - [CHANGELOG.md](CHANGELOG.md)
 
 **Building:** needs a game install with ModTek and CustomComponents, the .NET SDK and the .NET Framework 4.7.2 Developer Pack; then run `dotnet build -c Release -p:GameDir=<your BATTLETECH folder>`. Details in [docs/BUILDING.md](docs/BUILDING.md).

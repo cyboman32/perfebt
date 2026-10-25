@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+- `src/ModTek/` renamed to `src/Game/`: the folder is named after the code it patches. The old name implied the fixes fit ModTek, which ModTek and RogueTech developers disputed. No behavior change.
+- Docs: FINDINGS blamed JwTweaks for the save padding; vanilla `StatCollection.PreSerialization` saves its whole `Size()`-estimated buffer, and JwTweaks' compact encoding only leaves more of it zero. Rows for CustomActivatableEquipment aura churn and CustomUnits movement stutter now name vanilla `OnEffectEnd` / `OnPositionUpdate` as the visibility rebuild, with those mods as triggers. Added the attribution rule (name the method from the IL; say whether it is vanilla) and marked unmeasured costs. `ModTek-upstream-proposals.md` lists evidence (measured alone, in combination, not measured) instead of "fits" verdicts.
+
 ## 0.9.2
 - Source split: fixes for RogueTech's mods moved from `src/` to `src/RogueTech/`; Unity engine fixes (DelayedStartIndex, UnityPlayerBuild, LayoutFastPath, UiListPoolTrim, ExitFast) from `src/ModTek/` to `src/Unity/`; Mono runtime code (LoadGcPause, MonoApi, ProcMem) to `src/Mono/`. `src/ModTek/` keeps fixes for the game's own code; `src/` keeps diagnostics, the profiler, settings and wiring. No behavior change.
 - Memory settings follow the PC's RAM: `GcBudgetMb`, `GcPauseMaxGrowthMb` and `GcMinFreeMemoryMb` default to `0` = automatic from installed RAM (16 GB: no play budget, 4000, 2000; 32 GB: 8000, 8000, 3000; 48 GB or more: 14000, 12000, 3000), logged as `[gc] RAM … MB: …` at startup. A positive value overrides; `-1` switches the setting off (before, `0` did that for `GcBudgetMb` and `GcMinFreeMemoryMb`). A 32 GB PC running the shipped 14000 / 12000 had 53–238 MB RAM free late in a session, a low-memory collection every 1–2 minutes in missions and one 94 s collection that paged the heap back in.

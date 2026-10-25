@@ -1,7 +1,8 @@
-# PerfeBT → ModTek upstream proposals
+# PerfeBT findings that touch ModTek
 
-Scope: decide which generic PerfeBT fixes and profiling observations belong upstream in
-[ModTek](https://github.com/BattletechModders/ModTek), and what users can turn on in ModTek config today.
+Scope: PerfeBT fixes and profiling observations that concern [ModTek](https://github.com/BattletechModders/ModTek)'s own code, or vanilla code that ModTek also patches, plus what users can turn on in ModTek config today.
+This document does not decide what fits ModTek; its maintainers do. Earlier versions called candidates "fits" because they patch vanilla code and showed one-session numbers. ModTek and RogueTech developers pointed out that several are not generic enough or do not help substantially, so those verdicts were removed.
+Each candidate now states only what it patches, the evidence, and its open questions. **Evidence** is one of: *measured alone* (switched off and on, nothing else changed), *measured in combination* (one step of a chain of changes), *not measured* (by reading code).
 Mod-specific PerfeBT fixes (CustomComponents, CustomUnits, CustomFilters, IRBTModUtils) are out of scope.
 
 ## Version pin
@@ -18,22 +19,22 @@ Mod-specific PerfeBT fixes (CustomComponents, CustomUnits, CustomFilters, IRBTMo
 
 ## Summary
 
-| # | Candidate | Already in ModTek? | Fit | Proposed home / config | Measured effect (PerfeBT) |
-|---|---|---|---|---|---|
-| 1 | JsonReflection (cache GetInterfaces/GetGenericArguments, memoize IsValueType) | Partial overlap: `BetterReflectionCache` covers other ReflectionCache calls only | **Fits very well** | `Features/BetterReflectionCache/`, always on like its siblings | save-load window 45.4 → 38.8 s (−15 %) |
-| 2 | DataLoaderMonitoring (skip hot-reload registration) | No | **Fits** | `Features/Manifest/Patches/DataLoader_LoadResource_Patch.cs`, no key | removes an O(n) list scan per loaded file (~36k files) |
-| 3 | TagSetIndex (NOCASE index on `TagSetTag.TagSetID`) | No; but ModTek owns the modded MDDB file | **Fits very well**, and better upstream than in PerfeBT | `Features/Manifest/MDD/MDDBCache.cs` (persisted in the cached MDDB) | ~11 ms per `GetTagsForSet` call → index seek; 177 ms one-time build |
-| 4 | **New:** `BetterBTRL.HasChanges` is never reset, so every `RefreshTypedEntries` does a full rebuild | ModTek bug | **Fits (ModTek-owned code)** | `Features/Manifest/BTRL/BetterBTRL.cs` | `ApplyMemoryStore` 630–750 ms per call runs 2 full rebuilds; RefreshTypedEntries 1.07 s cumulative |
-| 5 | CustomSoundBankDefs: pinned GCHandle never freed + sync read/decrypt | ModTek code | **Fits** (leak fix); perf part **partial** | `Features/CustomSoundBankDefs/SoundBanksPatches.cs` | 2.6 s first combat in an earlier run; ~10 ms in this session (warm cache) |
-| 6 | SaveLoadThrottle / LoadWindow (light loads 10 → 300 + per-frame budget) | Overlaps: `LoadRequest_PopPendingRequest_Patch` + `DataManagerUnfreezeDelta` | **Partial** | `Features/Manifest/Patches/` next to the unfreeze patch; new keys `DataManagerMaxConcurrentLoads*` | defs window 73 → 53.6 s |
-| 7 | HarmonyX "Patching…" Info logging | Configurable in the preloader (`Harmony12XLogChannelFilter`) | Config change now; changing the default is **partial** | `ModTek.Preloader/Loader/Config.cs` default 26 → 24 | ~3.1k Info lines × 3 sinks |
-| 8 | InternetCheck (skip 5 s synchronous connectivity check) | No | **Partial** (vanilla behaviour change) | opt-in `SkipInternetConnectivityCheck`, e.g. `Features/Misc/` | `UnityGameInstance::GetHtmlFromUri` 5001.6 ms at Loading |
-| 9 | Log volume (~130k lines at startup) | Async logging already removes most main-thread cost | **Doesn't fit as code change** (maintainer rejected aggregation in #251); config fix only | user/modpack `config.json` `Logging.MainLog.Exclude` | main-thread cost measured at ~17 ms on-thread for 131k messages |
-| 10 | Manifest processing ~9 s | Partly measured by ModTek itself | Profile first; mostly covered by #4 | `Features/Manifest/` | BuildModdedBTRL 6.58 s, BuildMDDBCache 1.27 s |
+| # | Candidate | Already in ModTek? | Evidence | Measured effect (PerfeBT) |
+|---|---|---|---|---|
+| 1 | JsonReflection (cache GetInterfaces/GetGenericArguments, memoize IsValueType) | Partial overlap: `BetterReflectionCache` covers other ReflectionCache calls only | measured in combination | save-load window 45.4 → 38.8 s |
+| 2 | DataLoaderMonitoring (skip hot-reload registration) | No | not measured | O(n) list scan per loaded file (~36k files), by reading the code |
+| 3 | TagSetIndex (NOCASE index on `TagSetTag.TagSetID`) | No; ModTek owns the modded MDDB file | per call only; call count not measured | ~11 ms per `GetTagsForSet` call → index seek; 177 ms one-time build |
+| 4 | `BetterBTRL.HasChanges` looks never reset, so every `RefreshTypedEntries` would do a full rebuild | ModTek code | not measured; from reading ModTek's source, not confirmed at runtime | `ApplyMemoryStore` 630–750 ms per call; RefreshTypedEntries 1.07 s cumulative |
+| 5 | CustomSoundBankDefs: pinned GCHandle looks never freed; sync read/decrypt | ModTek code | leak not shown; cost 2.6 s in one run, ~10 ms in the next | 2.6 s first combat (cold), ~10 ms (warm) |
+| 6 | SaveLoadThrottle / LoadWindow (light loads 10 → 300 + per-frame budget) | Overlaps: `LoadRequest_PopPendingRequest_Patch` + `DataManagerUnfreezeDelta` | measured in combination; scale is RogueTech's 9.5k ChassisDef loads | defs window 73 → 53.6 s |
+| 7 | HarmonyX "Patching…" Info logging | Configurable in the preloader (`Harmony12XLogChannelFilter`) | config only | ~3.1k Info lines × 3 sinks |
+| 8 | InternetCheck (skip 5 s synchronous connectivity check) | No | measured alone; changes vanilla behaviour | `UnityGameInstance::GetHtmlFromUri` 5001.6 ms at Loading |
+| 9 | Log volume (~130k lines at startup) | Async logging already removes most main-thread cost | config only (maintainer rejected aggregation in #251) | ~17 ms on-thread for 131k messages |
+| 10 | Manifest processing ~9 s | Partly measured by ModTek itself | observation, no fix | BuildModdedBTRL 6.58 s, BuildMDDBCache 1.27 s |
 
-## 1. JsonReflection → `Features/BetterReflectionCache`
+## 1. JsonReflection
 
-**PerfeBT** (`PerfeBT/src/ModTek/JsonReflection.cs`):
+**PerfeBT** (`PerfeBT/src/Game/JsonReflection.cs`):
 - Transpilers on `HBS.Util.JSONSerializationUtility.RehydrateObjectFromDictionary` (the 7-parameter overload) and `ConvertValue` replace calls to `Type.GetInterfaces()`, `Type.GetGenericArguments()` and `Enumerable.Contains<Type>` with per-Type cached arrays.
 - A prefix/postfix pair memoizes `HBS.Reflection.MemberInfoHelper.IsValueType(Type)` per `Type`.
 - PerfeBT.log: "RehydrateObjectFromDictionary 2 reflection calls cached", "ConvertValue 7".
@@ -54,14 +55,14 @@ Mod-specific PerfeBT fixes (CustomComponents, CustomUnits, CustomFilters, IRBTMo
 - Follow the folder's convention: no config key, `Prepare => ModTek.Enabled`.
 - Transpilers should match by `MethodInfo` operand and log or skip when the expected call count is not found, as PerfeBT already does.
 
-**Fit: fits very well.** The behaviour is identical: per-Type results are immutable at runtime, and the change is purely a cache.
+**Open question:** the 45.4 → 38.8 s step was measured within the chain of save-load changes; its effect switched off and on alone is not known. Per-Type results are immutable at runtime, so the change is a pure cache.
 
 **Risk:**
 - HBS JSON is used off the main thread during prewarm, so the cache must be thread-safe.
 
-## 2. DataLoaderMonitoring → `Features/Manifest/Patches`
+## 2. DataLoaderMonitoring
 
-**PerfeBT** (`PerfeBT/src/ModTek/LoadWindow.cs`, `DataLoaderMonitoring`):
+**PerfeBT** (`PerfeBT/src/Game/LoadWindow.cs`, `DataLoaderMonitoring`):
 - A prefix on `HBS.Data.DataLoader.LoadResource(string, Action<string,Stream>, bool)` forces `monitor = false`.
 - Vanilla registers every loaded file for hot-reload with an O(n) `List` contains-scan. The consumer, `CheckFiles`, is unreachable in release builds.
 
@@ -71,13 +72,13 @@ Mod-specific PerfeBT fixes (CustomComponents, CustomUnits, CustomFilters, IRBTMo
 - Add `ModTek/Features/Manifest/Patches/DataLoader_LoadResource_Patch.cs`, with `Prepare => ModTek.Enabled` and a prefix of `monitor = false`.
 - No config key is needed. If the maintainer wants one, call it `DataLoaderHotReloadMonitoringDisabled` with a `_Description`, following [`Misc/Configuration.cs`](https://github.com/BattletechModders/ModTek/blob/679fad49adaae4b23765b11705a1808c8422b855/ModTek/Misc/Configuration.cs).
 
-**Fit: fits.** It is a generic vanilla hot path that scales with mod-pack size, which is exactly what ModTek's loader patches target.
+**Open question:** the cost is O(n) per load by reading the code and was never measured; how many seconds it saves on a RogueTech load is unknown.
 
 **Risk:** none known, provided nothing calls `DataLoader.CheckFiles` `[INFERENCE: verified unreachable by PerfeBT analysis, not re-verified here]`.
 
-## 3. TagSetIndex → `Features/Manifest/MDD/MDDBCache.cs`
+## 3. TagSetIndex
 
-**PerfeBT** (`PerfeBT/src/ModTek/TagSetIndex.cs`):
+**PerfeBT** (`PerfeBT/src/Game/TagSetIndex.cs`):
 - Runs `CREATE INDEX IF NOT EXISTS PerfeBT_TagSetTag_TagSetID_NoCase ON TagSetTag (TagSetID COLLATE NOCASE)` in a prefix on `Tags_MDDExtenstions.GetTagsForSet`, once per `MetadataDatabase.inMemoryDB` connection.
 - PerfeBT.log: "TagSetTag NOCASE index ensured in 177 ms".
 
@@ -101,15 +102,14 @@ Mod-specific PerfeBT fixes (CustomComponents, CustomUnits, CustomFilters, IRBTMo
 - Optional key: `MDDBExtraIndexesEnabled` (default true) with `_Description`.
 - The same hook can host further indexes found with the existing `Logging.LogSqlQueryInitializations` ([`SqliteCommand_CommandText_Setter_Patch.cs`](https://github.com/BattletechModders/ModTek/blob/679fad49adaae4b23765b11705a1808c8422b855/ModTek/Features/Logging/Patches/SqliteCommand_CommandText_Setter_Patch.cs)) plus `EXPLAIN QUERY PLAN`.
 
-**Fit: fits very well, and better than in PerfeBT:**
-- Only ModTek knows when the MDDB is rebuilt and saved, so it can turn a per-session 177 ms cost into a one-time cost.
+**Open question:** how many `GetTagsForSet` calls a session makes; without that, the total effect is unknown. If it is worth having, only ModTek knows when the MDDB is rebuilt and saved, so it could build the index once instead of every session.
 
 **Risks:**
 - The DB file grows by roughly the size of the index `[INFERENCE]`.
 - `SaveMDDToPath` must preserve indexes `[INFERENCE: HBS writes the in-memory DB to disk; verify the index survives a save/reload once]`.
 - If PerfeBT stays installed alongside, its `IF NOT EXISTS` with a different name would create a duplicate index. PerfeBT should check for either name, or drop its fix once ModTek ships this.
 
-## 4. New finding: `BetterBTRL.HasChanges` is never reset → `Features/Manifest/BTRL/BetterBTRL.cs`
+## 4. `BetterBTRL.HasChanges` (from reading ModTek's source)
 
 Found while tracing the manifest observation. This is ModTek-owned code.
 - [`BetterBTRL.cs#L294-L325`](https://github.com/BattletechModders/ModTek/blob/679fad49adaae4b23765b11705a1808c8422b855/ModTek/Features/Manifest/BTRL/BetterBTRL.cs#L294-L325): `RefreshTypedEntries()` returns early only `if (!HasChanges)`, then rebuilds the whole `TypedManifest`: `Reset(defaultManifest.Entries)`, every addendum, the mods addendum, and the merge cache with a lookup per entry.
@@ -127,13 +127,13 @@ Found while tracing the manifest observation. This is ModTek-owned code.
   - Memory-store contents can change after they are applied, and today the always-rebuild behaviour silently covers that case.
 - Optionally drop the redundant `RefreshTypedEntries()` at L177 and L191.
 
-**Fit: fits.** It is ModTek's own code and a small diff.
+**Open question:** this comes from reading ModTek's source, not from a runtime trace; the rebuilds could have a reason we missed.
 
 **Gain:** expected to remove at least one of the two rebuilds per `ApplyMemoryStore`, plus every no-op refresh `[INFERENCE: roughly 50–350 ms per memory-store apply, not measured]`.
 
 **Risk:** some code may depend on the "always rebuild" side effect. Validate with a mod-pack start plus save load.
 
-## 5. CustomSoundBankDefs → `Features/CustomSoundBankDefs/SoundBanksPatches.cs`
+## 5. CustomSoundBankDefs
 
 **Observation:** FINDINGS.md:48 reports `LoadedAudioBank_LoadBankExternal` prefix 2.6 s in the first combat (6 banks, ~440 ms each).
 
@@ -154,13 +154,13 @@ Found while tracing the manifest observation. This is ModTek-owned code.
    - Read and decrypt banks on a background task at sim-game/combat-load start, and pin only on the main thread.
    - Alternatively, cache the decrypted bytes for banks loaded repeatedly.
 
-**Fit:**
-- The leak fix fits: it is ModTek-owned code.
-- The perf part is partial: the cost is I/O-bound and not reproducible warm, so it needs a cold-cache measurement first.
+**Open questions:**
+- The handle leak is read from the code, not shown at runtime.
+- The cost is I/O-bound and not reproducible warm, so it needs a cold-cache measurement.
 
-## 6. SaveLoadThrottle / LoadWindow → `Features/Manifest/Patches` (partial overlap)
+## 6. SaveLoadThrottle / LoadWindow (overlaps ModTek)
 
-**PerfeBT** (`PerfeBT/src/ModTek/LoadWindow.cs`, `SaveLoadThrottle`):
+**PerfeBT** (`PerfeBT/src/Game/LoadWindow.cs`, `SaveLoadThrottle`):
 - Between `SimGameState.RequestDataManagerResources` and `RespondToDefsLoadComplete`, it raises `DataManager.SetMaxLightConcurrentLoads(300)` (vanilla is 10).
 - It enforces a 1000 ms per-frame budget with a `LoadRequest.PopPendingRequest` prefix (`Priority.First`) that returns `null` once the budget is spent.
 - PerfeBT.log: "load limits light 10 -> 300 … restored after 31.8 s, 13 budget cuts", with up to 2,889 pops per frame.
@@ -183,11 +183,11 @@ Found while tracing the manifest observation. This is ModTek-owned code.
 - Change the unfreeze semantics to a real per-frame budget: record the frame start (or `Time.frameCount` change) and return `null` once `now - frameStart >= budget`, independent of batch ends.
   - This can ship alone as a bug fix of `DataManagerUnfreezeDelta`'s intent.
 
-**Fit: partial.**
-- It belongs next to the existing unfreeze patch.
-- But raising concurrency changes vanilla scheduling for all mod packs. Packs whose loaders assume ≤10 in flight could expose ordering bugs `[INFERENCE]`. The default should stay vanilla and be opt-in.
+**Open questions:**
+- The 73 → 53.6 s comes from RogueTech's ~9.5k ChassisDef loads; smaller packs may gain little.
+- Raising concurrency changes vanilla scheduling for all mod packs. Packs whose loaders assume ≤10 in flight could expose ordering bugs `[INFERENCE]`.
 
-## 7. HarmonyX "Patching…" listings → preloader config
+## 7. HarmonyX "Patching…" listings (preloader config)
 
 **ModTek today:**
 - [`ModTek.Preloader/Harmony12X/ShimInjectorPatches.cs#L18-L30`](https://github.com/BattletechModders/ModTek/blob/679fad49adaae4b23765b11705a1808c8422b855/ModTek.Preloader/Harmony12X/ShimInjectorPatches.cs#L18-L30): when `Harmony12XLogChannelFilter > 0`, it sets `HarmonyLib.Tools.Logger.ChannelFilter` and adds a file logger (`HarmonyFileLog.log`).
@@ -203,11 +203,11 @@ Found while tracing the manifest observation. This is ModTek-owned code.
 - Users: see config section below.
 - Upstream: default to `24`, and document `26` for patch-order debugging.
 
-**Fit: partial.** The maintainer deliberately kept the Info listing as the replacement for harmony_summary.log, so a default change may be refused. Fair: the cost is mostly disk; HarmonyX formats Info messages only when the channel is enabled `[INFERENCE]`.
+**Note:** the maintainer deliberately kept the Info listing as the replacement for harmony_summary.log; this is a config choice, not a fix. The cost is mostly disk; HarmonyX formats Info messages only when the channel is enabled `[INFERENCE]`.
 
-## 8. InternetCheck → opt-in vanilla tweak
+## 8. InternetCheck (vanilla behaviour change)
 
-**PerfeBT** (`PerfeBT/src/ModTek/InternetCheck.cs`) prefixes `UnityGameInstance.CheckInternetConnectivity` and invokes `OnInternetConnectivityResult(false)` immediately.
+**PerfeBT** (`PerfeBT/src/Game/InternetCheck.cs`) prefixes `UnityGameInstance.CheckInternetConnectivity` and invokes `OnInternetConnectivityResult(false)` immediately.
 
 **Evidence:** the 2026-10-18 `Loading` scene profiler report showed `BattleTech.UnityGameInstance::GetHtmlFromUri 5001.6 ms`, synchronous on the main thread. FINDINGS cites 1.5–5 s.
 
@@ -217,11 +217,9 @@ Found while tracing the manifest observation. This is ModTek-owned code.
 - `SkipInternetConnectivityCheck` (bool, default false) + `_Description`, in a small `Features/VanillaTweaks/` (or `Misc/`) folder.
 - Better alternative that changes no behaviour: run `GetHtmlFromUri` on a worker thread and marshal the result back to the main thread.
 
-**Fit: partial.**
-- It is not mod-loading related, and forcing "offline" disables online features (news/paradox account) `[INFERENCE]`.
-- The async variant has a better chance of acceptance than the skip.
+**Note:** it is not related to mod loading, and forcing "offline" disables online features (news/paradox account) `[INFERENCE]`.
 
-## 9. Log volume → configuration, not code
+## 9. Log volume (configuration)
 
 **Measured (this session):**
 - `battletech_log.txt`: 129,202 lines / 17 MB, of which 80,986 are ModTek lines and 10,855 HarmonyX lines.
@@ -237,7 +235,7 @@ Found while tracing the manifest observation. This is ModTek-owned code.
 - In [#251](https://github.com/BattletechModders/ModTek/issues/251) (comment of 2026-05-27) CptMoore said per-entry warnings are intentional (the support is per resource). He suggested fixing it in the content pack, a global suppress flag, or "another log prefix filter … in the default ModTek config of RogueTech".
 - A PR that demotes or aggregates `Add:` lines would likely be refused.
 
-**Fit: doesn't fit as a code change.** The main-thread cost is tens of ms, and the maintainer prefers per-entry logs. Ship it as modpack config instead (next section).
+**Note:** the main-thread cost is tens of ms, and the maintainer prefers per-entry logs; this is modpack config (next section), not a code change.
 
 ## 10. Manifest processing ~9 s
 
@@ -309,34 +307,26 @@ For RogueTech specifically, the maintainer's own suggestion in #251 is to filter
 - Use `26` again when debugging patch order.
 - `0` skips the file logger entirely and leaves HarmonyX's built-in default channel filter.
 
-## Later generic fixes (not yet evaluated for upstream)
+## Later fixes on vanilla, Unity or Mono code
 
-These were added to `PerfeBT/src/ModTek/` after this evaluation. They patch only vanilla BattleTech, Unity or Mono code, so they are candidates in principle; whether ModTek already overlaps and where each would live has not been checked against the pinned commit.
+Added after the evaluation above. They patch vanilla BattleTech, Unity or Mono code, but that alone does not make them generic: several only matter at RogueTech's scale or depend on RogueTech's mods. ModTek overlap has not been checked against the pinned commit.
 
-| PerfeBT file (setting) | What it fixes | Measured effect | Note |
-|---|---|---|---|
-| `LayoutFastPath.cs` (`LayoutFastPath`) | `LayoutRebuilder.MarkLayoutForRebuild` returns early for hidden elements, where the original marks nothing | store switch 2.2 → 0.3 s; mech lab enter/exit ~2.4 → ~0.5 s | |
-| `UiListPoolTrim.cs` (`UiListPoolTrim`) | Unity UI's shared `ListPool<Component>` keeps the capacity of the largest masked panel; every `GetComponents(…, list)` then visits all slots | Argo UI 10–30× slower after long missions, until restart | |
-| `SaveAlloc.cs` (`SaveAlloc`) | Save message written into a stream sized once; gzip output starts small | ~1.2 GB less allocated per save, same bytes | |
-| `UnitGenFix.cs` (`FixSqliteInList`) | Long Dapper `IN (...)` lists written as literals | MissionControl unit generation 5.5 s → 20 ms | |
-| `FindObjectMissCache.cs` (`FindObjectMissCache`) | Remembers whole-scene `FindObjectOfType` misses for the combat camera and map sunlight | after-action/salvage screens spent 50–80% of their time searching | |
-| `VisibilityRebuildMemo.cs` (`VisibilityRebuildMemo`) | Reuses unit-to-target visibility results within one rebuild after a kill | urban kills froze 9–17 s, 80% repeats | |
-| `LineOfSightTrace.cs` (`LineOfSightRayMemo`, `LineOfSightFastTrace`) | Remembers `LineOfSight.bresenhamVisionTest` results within one update/death/rebuild; same walk without the shared point list | urban death freezes up to 18 s, 94% repeated rays; in-game effect not yet measured | Correctness depends on mods that change design masks (CustomAmmoCategories); the memo is cleared around their known changes |
-| `LoadGcPause.cs` (`LoadGcPause`, `GcBudgetMb`) | Collector off during transitions and up to a growth budget | GC freezes moved behind loading screens; exit 50 → 9 s | Trades RAM for fewer freezes; needs per-user tuning |
-| `ExitFast.cs` (`ExitFast`) | Ends the process after managed shutdown, skipping native heap teardown | | |
-| `UnloadGate.cs` (`UnloadSkipSites`, `UnloadDeferSites`), `LoadingScreenFix.cs` | Fewer redundant `UnloadUnusedAssets` (~3 s each); loading curtain instead of a black screen | | |
-| `DelayedStartIndex.cs` (`DelayedStartIndex`, experimental) | Index for Unity's `DelayedCallManager::CancelCallDelayed` | salvage list build 0.6–1.3 s | Native detours tied to this exact `UnityPlayer.dll` build; unlikely to fit ModTek |
+| PerfeBT file (setting) | What it changes | Problem as measured | Effect of the fix | Scope |
+|---|---|---|---|---|
+| `src/Unity/LayoutFastPath.cs` (`LayoutFastPath`) | `LayoutRebuilder.MarkLayoutForRebuild` returns early for hidden elements, where the original marks nothing | 25–50k calls, ~20 µs each, per mech lab enter/exit, store switch, Argo room change | store switch 2.2 → 0.3 s; mech lab ~2.4 → ~0.5 s, one session before/after | Unity UI; call count grows with RogueTech's UI |
+| `src/Unity/UiListPoolTrim.cs` (`UiListPoolTrim`) | Trims Unity UI's shared `ListPool<Component>` after mask notifications | Argo UI 10–30× slower after long missions, until restart | not measured alone | Unity UI; shows up after RogueTech-size masked panels |
+| `src/Game/SaveAlloc.cs` (`SaveAlloc`) | Save message written into a stream sized once; gzip output starts small | ~3.7 GB allocated per save (303 MB save, mostly vanilla stat padding) | ~1.2 GB less allocated per save, same bytes; time not measured | vanilla; scale comes from the save size |
+| `src/Game/UnitGenFix.cs` (`FixSqliteInList`) | Long Dapper `IN (...)` lists written as literals | MissionControl unit generation 5.5 s | 20 ms | vanilla Dapper; only MissionControl sends lists that long |
+| `src/Game/FindObjectMissCache.cs` (`FindObjectMissCache`) | Remembers whole-scene `FindObjectOfType` misses for the combat camera and map sunlight | ~19 ms per call every frame on after-action/salvage screens (50–80% of their time) | not measured alone | vanilla |
+| `src/Game/VisibilityRebuildMemo.cs` (`VisibilityRebuildMemo`) | Reuses unit-to-target visibility results within one rebuild after a kill | urban kills froze 9–17 s, 80% repeated checks | measured in combination with the line-of-sight fixes | vanilla code; urban maps with LowVisibility |
+| `src/Game/LineOfSightTrace.cs` (`LineOfSightRayMemo`, `LineOfSightFastTrace`) | Remembers `LineOfSight.bresenhamVisionTest` results within one update/death/rebuild; same walk without the shared point list | urban death freezes up to 18 s, 94% repeated rays | measured in combination: 16 deaths 0.17–2.2 s each | correctness depends on CustomAmmoCategories' design masks; the memo is cleared around their known changes |
+| `src/Mono/LoadGcPause.cs` (`LoadGcPause`, `GcBudgetMb`) | Collector off during transitions and up to a growth budget | 1–5 s GC freezes every few GB of allocation | freezes moved behind loading screens; exit 50 → 9 s | trades RAM for fewer freezes; harmful on PCs without the RAM (one 32 GB PC paged for 94 s) |
+| `src/Unity/ExitFast.cs` (`ExitFast`) | Ends the process after managed shutdown, skipping native heap teardown | seconds for a 30–45 GB heap | not measured | only matters with `LoadGcPause`-size heaps |
+| `src/Game/UnloadGate.cs`, `LoadingScreenFix.cs` | Fewer redundant `UnloadUnusedAssets`; loading curtain instead of a black screen | ~3 s per `UnloadUnusedAssets` | not measured | includes a CustomMaps site |
+| `src/Unity/DelayedStartIndex.cs` (`DelayedStartIndex`, experimental, off) | Index for Unity's `DelayedCallManager::CancelCallDelayed` | salvage list build 0.6–1.3 s | not measured alone | native detours tied to this exact `UnityPlayer.dll` build |
 
-## Out of scope (stay in PerfeBT)
-CustomComponents, CustomUnits, CustomFilters, CustomMaps, CustomAmmoCategories, MissionControl and IRBTModUtils fixes target specific mods. They belong upstream in those mods, not in ModTek.
+## Out of scope
+CustomComponents, CustomUnits, CustomFilters, CustomMaps, CustomAmmoCategories, MissionControl and IRBTModUtils fixes target specific mods. Notes for their authors are in [FINDINGS.md](FINDINGS.md#notes-for-mod-authors).
 
-## Suggested PR order
-1. **JsonReflection** → `BetterReflectionCache`: self-contained, no behaviour change, biggest measured win.
-2. **DataLoader hot-reload monitoring off**: one-liner.
-3. **BetterBTRL.HasChanges reset** (+ `IndexMemoryStore` sets it): bug fix in ModTek code.
-4. **MDDB NOCASE TagSetTag index** in `MDDBCache.BuildCache`: persisted, one-time cost.
-5. **Soundbank GCHandle leak**: correctness; then measure the cold-cache cost before any async prefetch.
-6. **PopPendingRequest per-frame budget semantics**, then opt-in `DataManagerMaxConcurrentLoads*`.
-7. **HarmonyX default filter 24**: discuss first (deliberate design).
-8. **Internet check**: async version preferred; skip only as opt-in.
-9. **Log verbosity**: config/modpack only (maintainer position in #251).
+## Before raising anything
+Switch each candidate off and on alone: three save loads (or the affected scene) each way, profiler off. Offer only what saves seconds or removes a session-long slowdown, and leave the fit to the maintainers.
