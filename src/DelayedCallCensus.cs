@@ -52,7 +52,7 @@ namespace PerfeBT
             UnityPlayerBuild.Check(b, RvaContinueCoroutine, ContinueBytes, "Coroutine::ContinueCoroutine");
             baseAddress = b;
 
-            var target = AccessTools.Method("BattleTech.UI.AAR_SalvageScreen:CalculateAndAddAvailableSalvage")
+            var target = AccessTools.Method(typeof(BattleTech.UI.AAR_SalvageScreen), nameof(BattleTech.UI.AAR_SalvageScreen.CalculateAndAddAvailableSalvage))
                          ?? throw new MissingMethodException("AAR_SalvageScreen.CalculateAndAddAvailableSalvage");
             harmony.Patch(target, prefix: new HarmonyMethod(typeof(DelayedCallCensus), nameof(SalvagePrefix)) { priority = Priority.First });
         }

@@ -1,5 +1,4 @@
 using System;
-using System.Linq.Expressions;
 using System.Reflection;
 using System.Security.Cryptography;
 using BattleTech;
@@ -18,8 +17,6 @@ namespace PerfeBT
     // VerifyEvery-th call runs LowVisibility's prefix as well and compares, a difference switches it off.
     internal static class LowVisibilityLineOfFire
     {
-        private const string PatchType = "LowVisibility.Patch.LineOfSight_GetLineOfFireUncached";
-        private const string ModType = "LowVisibility.Mod";
         // SHA-256 of the IL of LowVisibility's LineOfSight_GetLineOfFireUncached.Prefix as shipped with RogueTech.
         internal const string ExpectedIl = "ed70232794456042d0eb091afa67209b37def2bda7ff4b464dabd6f3c2c4a5f4";
 
@@ -30,30 +27,33 @@ namespace PerfeBT
             internal Vector3 Collision;
         }
 
-        private static Harmony harmony;
         private static MethodInfo target;
-        private static Func<bool> traceOn;
+
+        // Uses LowVisibility members directly; only reached (and precompiled) when its assembly is loaded.
+        private static class Lv
+        {
+            internal static MethodInfo Target() =>
+                AccessTools.Method(typeof(LowVisibility.Patch.LineOfSight_GetLineOfFireUncached), nameof(LowVisibility.Patch.LineOfSight_GetLineOfFireUncached.Prefix));
+
+            internal static bool TraceOn() => LowVisibility.Mod.Log.Trace.HasValue;
+        }
+
         private static bool on, patchesChecked;
         private static int verifyEvery, sinceVerify;
         private static long computed, verified;
 
         internal static void Apply(Harmony h, int verify)
         {
-            var patch = AccessTools.TypeByName(PatchType);
-            if (patch == null)
+            if (!ModAssemblies.Loaded("LowVisibility"))
                 return;
-            target = AccessTools.Method(patch, "Prefix") ?? throw new MissingMethodException(PatchType, "Prefix");
+            Fixes.Precompile(typeof(Lv));
+            target = Lv.Target();
             var il = IlHash(target);
             if (il != ExpectedIl)
             {
-                Log.Write($"[lof] {PatchType}.Prefix is not the version this was written for (IL {il}); left alone");
+                Log.Write($"[lof] {target.DeclaringType?.FullName}.Prefix is not the version this was written for (IL {il}); left alone");
                 return;
             }
-            var log = AccessTools.Field(AccessTools.TypeByName(ModType) ?? throw new TypeLoadException(ModType), "Log")
-                      ?? throw new MissingFieldException(ModType, "Log");
-            traceOn = Expression.Lambda<Func<bool>>(
-                Expression.Property(Expression.Property(Expression.Field(null, log), "Trace"), "HasValue")).Compile();
-            harmony = h;
             verifyEvery = verify;
             h.Patch(target,
                 prefix: new HarmonyMethod(typeof(LowVisibilityLineOfFire), nameof(Prefix)) { priority = Priority.First },
@@ -87,7 +87,7 @@ namespace PerfeBT
         }
 
         // The fixes and the profiler's timing patches.
-        private static bool Ours(string owner) => owner == harmony.Id || owner.StartsWith("io.perfebt.", StringComparison.Ordinal);
+        internal static bool Ours(string owner) => owner.StartsWith("io.perfebt.", StringComparison.Ordinal);
 
         private static void Off(string why)
         {
@@ -106,7 +106,7 @@ namespace PerfeBT
             __state = default;
             if (!patchesChecked)
                 CheckPatches();
-            if (!on || !__0 || __6 is AbstractActor || traceOn())
+            if (!on || !__0 || __6 is AbstractActor || Lv.TraceOn())
                 return true;
             var guid = __6.GUID;
             if (guid == null)

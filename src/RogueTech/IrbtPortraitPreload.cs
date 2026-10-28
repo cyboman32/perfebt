@@ -1,12 +1,9 @@
 using System;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.Reflection;
 using System.Threading;
 using BattleTech;
 using BattleTech.Save;
 using HarmonyLib;
-using UnityEngine;
 
 namespace PerfeBT
 {
@@ -25,31 +22,14 @@ namespace PerfeBT
     internal static class IrbtPortraitPreload
     {
         private static int mainThreadId;
-        private static Action<CombatGameState> irbtInitPostfix;   // us.frostraptor.modUtils.CombatGameState__Init.Postfix
-        private static FieldInfo sharedCombat;                     // IRBTModUtils.SharedState.Combat
-        private static FieldInfo portraitsField;                   // IRBTModUtils.ModState.Portraits
-
-        private static T Req<T>(T x, string what) where T : class
-            => x ?? throw new MissingMemberException("PerfeBT.IrbtPortraitPreload: missing " + what);
 
         internal static void Apply(Harmony harmony)
         {
+            Fixes.Precompile(typeof(IrbtPortraitPreload));
             mainThreadId = Thread.CurrentThread.ManagedThreadId;
 
-            var initPostfix = Req(AccessTools.Method("us.frostraptor.modUtils.CombatGameState__Init:Postfix", new[] { typeof(CombatGameState) }),
-                "us.frostraptor.modUtils.CombatGameState__Init.Postfix(CombatGameState)");
-            irbtInitPostfix = (Action<CombatGameState>)Delegate.CreateDelegate(typeof(Action<CombatGameState>), initPostfix);
-            sharedCombat = Req(AccessTools.Field(Req(AccessTools.TypeByName("IRBTModUtils.SharedState"), "IRBTModUtils.SharedState"), "Combat"),
-                "IRBTModUtils.SharedState.Combat");
-            portraitsField = Req(AccessTools.Field(Req(AccessTools.TypeByName("IRBTModUtils.ModState"), "IRBTModUtils.ModState"), "Portraits"),
-                "IRBTModUtils.ModState.Portraits");
-            if (!sharedCombat.IsStatic || sharedCombat.FieldType != typeof(CombatGameState))
-                throw new MissingMemberException("PerfeBT.IrbtPortraitPreload: SharedState.Combat has unexpected shape");
-            if (!portraitsField.IsStatic || portraitsField.FieldType != typeof(Dictionary<string, Sprite>))
-                throw new MissingMemberException("PerfeBT.IrbtPortraitPreload: ModState.Portraits has unexpected shape");
-
-            var rehydrate = Req(AccessTools.Method(typeof(SimGameState), "Rehydrate", new[] { typeof(GameInstanceSave) }),
-                "SimGameState.Rehydrate(GameInstanceSave)");
+            var rehydrate = AccessTools.Method(typeof(SimGameState), nameof(SimGameState.Rehydrate), new[] { typeof(GameInstanceSave) })
+                            ?? throw new MissingMemberException("PerfeBT.IrbtPortraitPreload: missing SimGameState.Rehydrate(GameInstanceSave)");
             harmony.Patch(rehydrate, postfix: new HarmonyMethod(AccessTools.Method(typeof(IrbtPortraitPreload), nameof(RehydratePostfix)), Priority.Last));
             Log.Write("IrbtPortraitPreload: IRBT portrait preload on SimGameState.Rehydrate applied");
         }
@@ -57,14 +37,14 @@ namespace PerfeBT
         private static void RehydratePostfix()
         {
             if (Thread.CurrentThread.ManagedThreadId != mainThreadId) return;   // Texture2D creation needs the main thread
-            var portraits = (Dictionary<string, Sprite>)portraitsField.GetValue(null);
+            var portraits = IRBTModUtils.ModState.Portraits;
             if (portraits == null || portraits.Count != 0) return;              // IRBT's own condition; null -> leave its NRE to combat init
 
             var sw = Stopwatch.StartNew();
             try
             {
                 // IRBT's own code path. SharedState.Combat is rewritten with its current value (no change).
-                irbtInitPostfix((CombatGameState)sharedCombat.GetValue(null));
+                us.frostraptor.modUtils.CombatGameState__Init.Postfix(IRBTModUtils.SharedState.Combat);
                 Log.Write($"IrbtPortraitPreload: preloaded {portraits.Count} portraits in {sw.ElapsedMilliseconds} ms");
             }
             catch (Exception e)

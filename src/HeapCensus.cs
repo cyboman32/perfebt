@@ -66,7 +66,7 @@ namespace PerfeBT
 
         internal static void Apply(Harmony harmony)
         {
-            var update = AccessTools.DeclaredMethod(typeof(BattleTech.UnityGameInstance), "Update", Type.EmptyTypes);
+            var update = AccessTools.DeclaredMethod(typeof(BattleTech.UnityGameInstance), nameof(BattleTech.UnityGameInstance.Update), Type.EmptyTypes);
             if (update == null || update.ReturnType != typeof(void))
                 throw new MissingMethodException("BattleTech.UnityGameInstance::Update() not found");
             if (Type.GetType("Mono.Runtime") == null || IntPtr.Size != 8)
@@ -201,6 +201,7 @@ namespace PerfeBT
                 };
 
                 bool disabledHere = false;
+                HeapUnreached.Result unreached = null;
                 var crawl = Stopwatch.StartNew();
                 try
                 {
@@ -226,6 +227,9 @@ namespace PerfeBT
                         walker.DropIfEmpty(id);
                     }
                     walker.Run();
+                    // Mark bits and addresses are only valid while the GC stays disabled.
+                    if (disabledHere || MonoApi.mono_unity_gc_is_disabled() != 0)
+                        unreached = HeapUnreached.Run(walker);
                 }
                 catch (Exception e)
                 {
@@ -255,6 +259,8 @@ namespace PerfeBT
                         w.WriteLine($"crawled {walker.Objects:N0} objects, {Mb(walker.Bytes)} MB shallow = {(usedSize > 0 ? 100.0 * walker.Bytes / usedSize : 0):F1}% of used; unreached {Mb(Math.Max(0, usedSize - walker.Bytes))} MB");
                         w.WriteLine($"setup {setupMs} ms ({statics.Count} static roots in {staticTypes} types, {vtableFailures} vtable failures, {behaviours.Sum(b => b.Value.Count)} MonoBehaviours), crawl {crawlMs} ms, paths {pathsMs} ms, total {total.ElapsedMilliseconds} ms, GC disabled during crawl: {disabledHere}");
                         walker.WriteReport(w, TopTypes, TopRoots);
+                        if (unreached != null)
+                            HeapUnreached.Write(w, unreached);
                     }
                     Log.Write($"[heap] census written to {file}: {walker.Objects:N0} objects, {Mb(walker.Bytes)} MB in {total.ElapsedMilliseconds} ms (crawl {crawlMs} ms, paths {pathsMs} ms){(walker.Aborted ? " ABORTED" : "")}");
                 });
@@ -879,6 +885,18 @@ namespace PerfeBT
             word |= m;
             return true;
         }
+
+        // Whether the crawl reached the object at address a (read-only).
+        internal bool Visited(long a)
+        {
+            if (!chunks.TryGetValue(a >> 22, out var bits))
+                return false;
+            int bit = (int)((a >> 4) & 0x3FFFF);
+            return (bits[bit >> 6] & (1UL << (bit & 63))) != 0;
+        }
+
+        // The type of the crawled objects with this vtable, null if the crawl met none.
+        internal Type TypeOfVtable(long vt) => typesByVtable.TryGetValue(vt, out var ts) ? ts?.Type : null;
 
         internal long BitmapBytes => chunks.Count * 4096L * 8;
 
@@ -1561,8 +1579,10 @@ namespace PerfeBT
 
         private static int Hash(long k) => (int)((ulong)(k * -7046029254386353131L) >> 32);
 
+        // The empty marker is never a key: looking it up would match the first empty slot.
         internal bool TryGetValue(long k, out T v)
         {
+            if (k == Empty) { v = default; return false; }
             int i = Hash(k) & mask;
             while (true)
             {

@@ -1,8 +1,7 @@
 using System;
 using System.Data;
 using System.Diagnostics;
-using System.Reflection;
-using HarmonyLib;
+using BattleTech.Data;
 
 namespace PerfeBT
 {
@@ -14,14 +13,17 @@ namespace PerfeBT
     internal static class TagSetIndex
     {
         private const string Sql = "CREATE INDEX IF NOT EXISTS PerfeBT_TagSetTag_TagSetID_NoCase ON TagSetTag (TagSetID COLLATE NOCASE)";
-        private static readonly FieldInfo ConnField = AccessTools.Field("BattleTech.Data.MetadataDatabase:inMemoryDB");
         private static object indexedConnection;
 
-        internal static void Prefix(object __0)
+        internal static void Prefix(MetadataDatabase __0)
         {
-            if (__0 == null || ConnField == null)
-                return;
-            if (!(ConnField.GetValue(__0) is IDbConnection conn) || ReferenceEquals(conn, indexedConnection))
+            if (__0 != null && __0.inMemoryDB is IDbConnection conn)
+                Ensure(conn);
+        }
+
+        internal static void Ensure(IDbConnection conn)
+        {
+            if (ReferenceEquals(conn, indexedConnection))
                 return;
             indexedConnection = conn;
             var sw = Stopwatch.StartNew();

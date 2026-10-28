@@ -37,7 +37,7 @@ namespace PerfeBT
 
         internal static void Apply(Harmony harmony)
         {
-            var target = AccessTools.Method(typeof(LineOfSight), "GetVisibilityToTargetWithPositionsAndRotations",
+            var target = AccessTools.Method(typeof(LineOfSight), nameof(LineOfSight.GetVisibilityToTargetWithPositionsAndRotations),
                              new[] { typeof(AbstractActor), typeof(Vector3), typeof(ICombatant), typeof(Vector3), typeof(Quaternion) })
                          ?? throw new MissingMethodException("LineOfSight.GetVisibilityToTargetWithPositionsAndRotations");
             harmony.Patch(target,

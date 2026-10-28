@@ -22,7 +22,7 @@ namespace PerfeBT
         internal static void Apply(Harmony harmony)
         {
             harmony.Patch(AccessTools.Method(typeof(LayoutRebuilder), nameof(LayoutRebuilder.MarkLayoutForRebuild)),
-                prefix: new HarmonyMethod(AccessTools.Method(typeof(LayoutFastPath), nameof(Prefix))) { priority = Priority.First });
+                prefix: new HarmonyMethod(typeof(LayoutFastPath), nameof(Prefix)) { priority = Priority.First });
         }
 
         private static bool Prefix(RectTransform rect)

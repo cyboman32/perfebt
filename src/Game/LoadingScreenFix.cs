@@ -26,9 +26,9 @@ namespace PerfeBT
         {
             // Fails here (disabling the fix) if the curtain API changed.
             _ = LoadingCurtain.IsVisible;
-            var prefix = new HarmonyMethod(AccessTools.Method(typeof(LoadingScreenFix), nameof(LoadPrefix)));
-            harmony.Patch(AccessTools.Method(typeof(SceneManager), "LoadSceneAsync", new[] { typeof(string) }), prefix: prefix);
-            harmony.Patch(AccessTools.Method(typeof(SceneManager), "LoadSceneAsync", new[] { typeof(string), typeof(LoadSceneMode) }), prefix: prefix);
+            var prefix = new HarmonyMethod(typeof(LoadingScreenFix), nameof(LoadPrefix));
+            harmony.Patch(AccessTools.Method(typeof(SceneManager), nameof(SceneManager.LoadSceneAsync), new[] { typeof(string) }), prefix: prefix);
+            harmony.Patch(AccessTools.Method(typeof(SceneManager), nameof(SceneManager.LoadSceneAsync), new[] { typeof(string), typeof(LoadSceneMode) }), prefix: prefix);
             SceneManager.sceneLoaded += OnSceneLoaded;
             SceneManager.sceneUnloaded += OnSceneUnloaded;
             var go = new GameObject("PerfeBT.LoadingScreenFix");

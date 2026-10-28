@@ -4,11 +4,11 @@ PerfeBT compiles against the game's and other mods' assemblies. They can't be pu
 
 ## Requirements
 
-- **Windows** with the **.NET SDK** 6 or newer (built with 8.0) for `dotnet build`.
+- **Windows** with the **.NET SDK** 6 or newer (built with 8.0) for `dotnet build`, with access to nuget.org: the repository's `nuget.config` adds it, and the build restores `Krafs.Publicizer`.
 - **.NET Framework 4.7.2 Developer Pack** (reference assemblies for `net472`). Without it the build fails with `MSB3644: The reference assemblies for .NETFramework,Version=v4.7.2 were not found`.
 - **BATTLETECH** (Steam or GOG) with:
   - **ModTek 4.x** in `Mods/ModTek/` (PerfeBT uses its `lib/0Harmony.dll` (HarmonyX) and `lib/MonoMod.Core.dll`);
-  - **CustomComponents** in `Mods/Core/CustomComponents/`, as installed by RogueTech or BTA 3062.
+  - **RogueTech's core mods** in `Mods/Core/` (listed below), as installed by RogueTech.
 
 The project references these files from the install (see `PerfeBT.csproj`):
 
@@ -16,9 +16,13 @@ The project references these files from the install (see `PerfeBT.csproj`):
 | --- | --- |
 | `Assembly-CSharp`, `UnityEngine*`, `Newtonsoft.Json`, `Google.Protobuf.Unity` | `BattleTech_Data/Managed/` |
 | `0Harmony`, `MonoMod.Core` | `Mods/ModTek/lib/` |
-| `CustomComponents` | `Mods/Core/CustomComponents/` |
+| `CustomComponents`, `CustomUnits`, `CustomAmmoCategories`, `IRBTModUtils`, `MissionControl`, `CustomMaps`, `LowVisibility`, `CustomFilters`, `CustomLocalSettings` | `Mods/Core/<name>/<name>.dll` |
 
-All other mods (CustomAmmoCategories, CustomUnits, LowVisibility, …) are looked up by name at runtime. They are not needed to build.
+## Publicizer
+
+[Krafs.Publicizer](https://github.com/krafs/Publicizer) makes the private members of `Assembly-CSharp`, `UnityEngine.CoreModule`, `UnityEngine.UI` and the mods above public at compile time, so PerfeBT reads fields and calls methods directly instead of through reflection. The setup follows ModTek's `ModTek.csproj`: `PublicizerRuntimeStrategies` is `Unsafe` (the game's Mono skips access checks for unverifiable code), and compiler-generated members are left out for the Unity and mod assemblies, where they clash with normal member names.
+
+At runtime the mods stay optional. A fix that uses a mod's members calls `Fixes.Precompile` on its patch classes before patching, inside `Fixes.ApplyGuarded`: a missing mod or a renamed member fails there, and only that fix stays off.
 
 ## Build
 

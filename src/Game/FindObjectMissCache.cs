@@ -38,7 +38,7 @@ namespace PerfeBT
                        ?? throw new MissingMethodException("UnityEngine.Object.FindObjectOfType(Type)");
             var create = AccessTools.Method(typeof(CameraControl), nameof(CameraControl.Create))
                          ?? throw new MissingMethodException("CameraControl.Create");
-            var sunEnable = AccessTools.Method(typeof(BTSunlight), "OnEnable")
+            var sunEnable = AccessTools.Method(typeof(BTSunlight), nameof(BTSunlight.OnEnable))
                             ?? throw new MissingMethodException("BTSunlight.OnEnable");
             harmony.Patch(create,
                 prefix: new HarmonyMethod(typeof(FindObjectMissCache), nameof(CreateBegin)),

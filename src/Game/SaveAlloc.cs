@@ -18,29 +18,33 @@ namespace PerfeBT
     //   - ProtobufSerialization.SerializeClass writes each message into a new MemoryStream() and returns ToArray().
     //     For the ~290 MB GameInstanceSave message the stream grew to the message size, then doubled (580 MB), then
     //     ToArray copied it again. Here the stream is first sized to message.CalculateSize() (only for messages of
-    //     1 MB or more), and when it is exactly full its buffer is the result instead of a copy (MemoryStream()
-    //     always exposes its buffer; the stream is disposed right after and nothing else holds it).
+    //     1 MB or more; 16 KB with SaveSerializerCopies, which covers each star system's ~29 KB stat message), and
+    //     when it is exactly full its buffer is the result instead of a copy (MemoryStream() always exposes its
+    //     buffer; the stream is disposed right after and nothing else holds it).
     //   - SaveBlock<T>.CompressBytes gzips into a MemoryStream created with the uncompressed length as capacity
     //     (290 MB for a ~5 MB save file). The capacity becomes 1/32 of that (at least 64 KB); the stream grows if the
     //     output is larger. The returned bytes are copied out of the stream either way.
     internal static class SaveAlloc
     {
         private const int Threshold = 1 << 20;
+        // Messages of this size or more are written into an exact-size stream (SaveSerializerCopies lowers it).
+        internal static int PresizeAt = Threshold;
         private static int logged;
 
         internal static void ApplySerialize(Harmony harmony)
         {
-            var serializeClass = AccessTools.Method("BattleTech.Serialization.ProtobufSerialization:SerializeClass")
+            var serializeClass = AccessTools.Method(typeof(BattleTech.Serialization.ProtobufSerialization),
+                                     nameof(BattleTech.Serialization.ProtobufSerialization.SerializeClass))
                                  ?? throw new MissingMethodException("ProtobufSerialization.SerializeClass");
-            harmony.Patch(serializeClass, transpiler: new HarmonyMethod(AccessTools.Method(typeof(SaveAlloc), nameof(SerializeClassTranspiler))));
+            harmony.Patch(serializeClass, transpiler: new HarmonyMethod(typeof(SaveAlloc), nameof(SerializeClassTranspiler)));
         }
 
         // SaveBlock<T> is instantiated with reference types only, which share one compiled body.
         internal static void ApplyCompress(Harmony harmony)
         {
-            var compress = AccessTools.Method(typeof(SaveBlock<>).MakeGenericType(typeof(GameInstanceSave)), "CompressBytes")
+            var compress = AccessTools.Method(typeof(SaveBlock<GameInstanceSave>), nameof(SaveBlock<GameInstanceSave>.CompressBytes))
                            ?? throw new MissingMethodException("SaveBlock<T>.CompressBytes");
-            harmony.Patch(compress, transpiler: new HarmonyMethod(AccessTools.Method(typeof(SaveAlloc), nameof(CompressTranspiler))));
+            harmony.Patch(compress, transpiler: new HarmonyMethod(typeof(SaveAlloc), nameof(CompressTranspiler)));
         }
 
         private static IEnumerable<CodeInstruction> SerializeClassTranspiler(IEnumerable<CodeInstruction> instructions)
@@ -87,7 +91,7 @@ namespace PerfeBT
             if (output is MemoryStream ms && ms.Capacity == 0)
             {
                 int size = message.CalculateSize();
-                if (size >= Threshold)
+                if (size >= PresizeAt)
                     ms.Capacity = size;
             }
             message.WriteTo(output);
@@ -95,8 +99,10 @@ namespace PerfeBT
 
         private static byte[] ToArray(MemoryStream ms)
         {
-            if (ms.Length < Threshold || ms.Capacity != ms.Length)
+            if (ms.Length < PresizeAt || ms.Capacity != ms.Length)
                 return ms.ToArray();
+            if (ms.Length < Threshold)
+                return ms.GetBuffer();
             if (logged < 5)
             {
                 logged++;

@@ -35,10 +35,10 @@ namespace PerfeBT
         {
             if (string.IsNullOrEmpty(ReportDir))
                 ReportDir = Path.Combine(Path.GetDirectoryName(typeof(TransitionWatch).Assembly.Location) ?? ".", "reports");
-            var prefix = new HarmonyMethod(AccessTools.Method(typeof(TransitionWatch), nameof(LoadPrefix)));
-            harmony.Patch(AccessTools.Method(typeof(SceneManager), "LoadSceneAsync", new[] { typeof(string) }), prefix: prefix);
-            harmony.Patch(AccessTools.Method(typeof(SceneManager), "LoadSceneAsync", new[] { typeof(string), typeof(LoadSceneMode) }), prefix: prefix);
-            var curtain = new HarmonyMethod(AccessTools.Method(typeof(TransitionWatch), nameof(CurtainPostfix)));
+            var prefix = new HarmonyMethod(typeof(TransitionWatch), nameof(LoadPrefix));
+            harmony.Patch(AccessTools.Method(typeof(SceneManager), nameof(SceneManager.LoadSceneAsync), new[] { typeof(string) }), prefix: prefix);
+            harmony.Patch(AccessTools.Method(typeof(SceneManager), nameof(SceneManager.LoadSceneAsync), new[] { typeof(string), typeof(LoadSceneMode) }), prefix: prefix);
+            var curtain = new HarmonyMethod(typeof(TransitionWatch), nameof(CurtainPostfix));
             harmony.Patch(AccessTools.Method(typeof(LoadingCurtain), nameof(LoadingCurtain.ShowUntil)), postfix: curtain);
             harmony.Patch(AccessTools.Method(typeof(LoadingCurtain), nameof(LoadingCurtain.ShowPopupUntil)), postfix: curtain);
             harmony.Patch(AccessTools.Method(typeof(LoadingCurtain), nameof(LoadingCurtain.Hide)), postfix: curtain);

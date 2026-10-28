@@ -1,5 +1,4 @@
-using System.Reflection;
-using HarmonyLib;
+using BattleTech;
 
 namespace PerfeBT
 {
@@ -8,13 +7,9 @@ namespace PerfeBT
     // offline immediately, which is what the game does whenever the request times out.
     internal static class InternetCheck
     {
-        private static readonly MethodInfo OnResult = AccessTools.Method("BattleTech.UnityGameInstance:OnInternetConnectivityResult");
-
-        internal static bool Prefix(object __instance)
+        internal static bool Prefix(UnityGameInstance __instance)
         {
-            if (OnResult == null)
-                return true;
-            OnResult.Invoke(__instance, new object[] { false });
+            __instance.OnInternetConnectivityResult(false);
             Log.Write("[fix] internet connectivity check skipped (reported offline)");
             return false;
         }

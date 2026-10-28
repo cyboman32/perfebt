@@ -19,8 +19,8 @@ namespace PerfeBT
     internal static class GcDump
     {
         private const string Module = "mono-2.0-bdwgc.dll";
-        private const int TimeDateStamp = 0x601cdd8a;
-        private const int SizeOfImage = 0x768000;
+        internal const int TimeDateStamp = 0x601cdd8a;
+        internal const int SizeOfImage = 0x768000;
         private const int RvaGcDump = 0x3075e4;
         private const int RvaGcPrintStats = 0x49ab34;
         private const int RvaGcHandles = 0x490a10; // HandleData gc_handles[4]: bitmap, entries, uint size @0x10; 40 bytes each

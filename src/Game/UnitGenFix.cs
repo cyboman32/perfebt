@@ -3,6 +3,7 @@ using System.Data;
 using System.Text;
 using System.Text.RegularExpressions;
 using HarmonyLib;
+using Dapper;
 
 namespace PerfeBT
 {
@@ -29,12 +30,6 @@ namespace PerfeBT
         // Dapper's PackListParameters uses RegexOptions.IgnoreCase | Multiline | CultureInvariant (515).
         private const RegexOptions DapperRegexOptions = RegexOptions.IgnoreCase | RegexOptions.Multiline | RegexOptions.CultureInvariant;
 
-        private static Type sqliteCommandType;
-        private static Func<string, bool> shouldPassByPosition;
-        private static Func<string, bool, string> getInListRegex;
-        private static Func<bool> padListExpansions;
-        private static Func<int> inListStringSplitCount;
-
         private static int rewrites;
         private static long rewrittenValues;
         private static int largest;
@@ -42,36 +37,11 @@ namespace PerfeBT
         private static bool probed;
         private static bool disabled;
 
-        // Dapper ships as Managed/Dapper.Unity.dll with assembly name "Dapper"; reach it through a game signature
-        // (MetadataDatabase.QueryMultiple returns Dapper.SqlMapper.GridReader) instead of loading it by name.
+        // Dapper ships as Managed/Dapper.Unity.dll (assembly name "Dapper"). Dapper's members are used directly; the
+        // first use from a patch body runs Dapper's static constructor, as the game's own first query does.
         internal static void Apply(Harmony harmony)
         {
-            var queryMultiple = AccessTools.Method(typeof(BattleTech.Data.MetadataDatabase), "QueryMultiple",
-                new[] { typeof(string), typeof(object), typeof(IDbTransaction), typeof(int?), typeof(CommandType?) })
-                ?? throw new MissingMethodException("MetadataDatabase", "QueryMultiple");
-            Apply(harmony, queryMultiple.ReturnType.DeclaringType);
-        }
-
-        internal static void Apply(Harmony harmony, Type mapper)
-        {
-            if (mapper == null || mapper.FullName != "Dapper.SqlMapper")
-                throw new TypeLoadException("Dapper.SqlMapper not found: " + mapper);
-            var settings = mapper.GetNestedType("Settings", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic)
-                ?? throw new MissingMemberException("Dapper.SqlMapper+Settings");
-
-            var target = AccessTools.Method(mapper, "PackListParameters", new[] { typeof(IDbCommand), typeof(string), typeof(object) })
-                ?? throw new MissingMethodException("Dapper.SqlMapper", "PackListParameters");
-            shouldPassByPosition = AccessTools.MethodDelegate<Func<string, bool>>(
-                AccessTools.Method(mapper, "ShouldPassByPosition", new[] { typeof(string) })
-                ?? throw new MissingMethodException("Dapper.SqlMapper", "ShouldPassByPosition"));
-            getInListRegex = AccessTools.MethodDelegate<Func<string, bool, string>>(
-                AccessTools.Method(mapper, "GetInListRegex", new[] { typeof(string), typeof(bool) })
-                ?? throw new MissingMethodException("Dapper.SqlMapper", "GetInListRegex"));
-            padListExpansions = AccessTools.MethodDelegate<Func<bool>>(
-                AccessTools.PropertyGetter(settings, "PadListExpansions") ?? throw new MissingMethodException("Settings", "PadListExpansions"));
-            inListStringSplitCount = AccessTools.MethodDelegate<Func<int>>(
-                AccessTools.PropertyGetter(settings, "InListStringSplitCount") ?? throw new MissingMethodException("Settings", "InListStringSplitCount"));
-
+            var target = AccessTools.Method(typeof(SqlMapper), nameof(SqlMapper.PackListParameters), new[] { typeof(IDbCommand), typeof(string), typeof(object) });
             var info = Harmony.GetPatchInfo(target);
             if (info != null && info.Owners.Count > 0)
                 throw new InvalidOperationException("PackListParameters already patched by " + string.Join(", ", info.Owners));
@@ -87,20 +57,14 @@ namespace PerfeBT
             var command = __0;
             if (command == null || __1 == null || disabled)
                 return true;
-            var type = command.GetType();
-            if (type != sqliteCommandType)
-            {
-                // Mono.Data.Sqlite is only known by name; remember its command type on first sight.
-                if (sqliteCommandType != null || type.FullName != "Mono.Data.Sqlite.SqliteCommand")
-                    return true;
-                sqliteCommandType = type;
-            }
+            if (command.GetType() != typeof(Mono.Data.Sqlite.SqliteCommand))
+                return true;
             if (!probed)
             {
                 // The rewrite relies on the regex Dapper applies; checked on first use (not in Apply, so Apply does not
                 // run Dapper's static constructor).
                 probed = true;
-                var probe = getInListRegex("TagSetID", false);
+                var probe = SqlMapper.GetInListRegex("TagSetID", false);
                 if (probe != @"([?@:]TagSetID)(?!\w)(\s+(?i)unknown(?-i))?")
                 {
                     disabled = true;
@@ -122,12 +86,12 @@ namespace PerfeBT
         // Returns false (original runs, command untouched) whenever the case is not the plain named IN-list expansion.
         internal static bool Rewrite(IDbCommand command, string name, string[] values)
         {
-            if (padListExpansions())
+            if (SqlMapper.Settings.PadListExpansions)
                 return Skip("PadListExpansions");
-            if (inListStringSplitCount() >= 0)
+            if (SqlMapper.Settings.InListStringSplitCount >= 0)
                 return Skip("InListStringSplitCount");
             var text = command.CommandText;
-            if (text == null || shouldPassByPosition(text))
+            if (text == null || SqlMapper.ShouldPassByPosition(text))
                 return Skip("positional");
 
             var length = 2;
@@ -141,7 +105,7 @@ namespace PerfeBT
                 length += v.Length + 3;
             }
 
-            var pattern = getInListRegex(name, false);
+            var pattern = SqlMapper.GetInListRegex(name, false);
             var matches = Regex.Matches(text, pattern, DapperRegexOptions);
             if (matches.Count == 0)
                 return Skip("no list token");

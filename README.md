@@ -112,6 +112,10 @@ The budget is the RAM above 24,000 MB (rounded down to 1000, at most 14000); the
 - [docs/ModTek-upstream-proposals.md](docs/ModTek-upstream-proposals.md): findings that touch ModTek's code, with how well each is measured.
 - [CHANGELOG.md](CHANGELOG.md)
 
-**Building:** needs a game install with ModTek and CustomComponents, the .NET SDK and the .NET Framework 4.7.2 Developer Pack; then run `dotnet build -c Release -p:GameDir=<your BATTLETECH folder>`. Details in [docs/BUILDING.md](docs/BUILDING.md).
+**Building:** needs a game install with ModTek and RogueTech's core mods (PerfeBT compiles against them), the .NET SDK with access to nuget.org and the .NET Framework 4.7.2 Developer Pack; then run `dotnet build -c Release -p:GameDir=<your BATTLETECH folder>`. Details in [docs/BUILDING.md](docs/BUILDING.md).
 
 **Releasing:** the build needs the game's own files, so releases are built locally rather than on GitHub. With the game installed, a clean working tree and the [GitHub CLI](https://cli.github.com) logged in, run `powershell -ExecutionPolicy Bypass -File scripts/release.ps1 -Tag v1.2.3`. It builds, packs `dist/PerfeBT_v1.2.3.zip`, tags HEAD, pushes the tag and creates the GitHub release with the zip; the notes come from the `## 1.2.3` section of the CHANGELOG. `-DryRun` only builds and packs; `-GameDir` overrides the game folder.
+
+## Thanks
+
+Thanks to the RogueTech community, and to the ModTek and RogueTech developers in particular, for reviewing PerfeBT. Their feedback corrected docs that blamed mods for vanilla behaviour and called fixes ModTek-ready without evidence, and moved the code from reflection to direct access through a publicizer.

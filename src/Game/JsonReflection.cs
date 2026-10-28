@@ -34,16 +34,20 @@ namespace PerfeBT
 
         internal static void Apply(Harmony harmony)
         {
-            var utility = AccessTools.TypeByName("HBS.Util.JSONSerializationUtility");
-            var rehydrate = utility.GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
-                .Single(m => m.Name == "RehydrateObjectFromDictionary" && m.GetParameters().Length == 7);
-            var convert = AccessTools.Method(utility, "ConvertValue");
+            var utility = typeof(HBS.Util.JSONSerializationUtility);
+            var rehydrate = AccessTools.Method(utility, nameof(HBS.Util.JSONSerializationUtility.RehydrateObjectFromDictionary),
+                                new[]
+                                {
+                                    typeof(object), typeof(Dictionary<string, object>), typeof(string), typeof(HBS.Stopwatch), typeof(HBS.Stopwatch),
+                                    typeof(HBS.Util.JSONSerializationUtility.RehydrationFilteringMode), typeof(Func<string, bool>[])
+                                })
+                            ?? throw new MissingMethodException("JSONSerializationUtility.RehydrateObjectFromDictionary");
+            var convert = AccessTools.Method(utility, nameof(HBS.Util.JSONSerializationUtility.ConvertValue));
             var transpiler = new HarmonyMethod(typeof(JsonReflection), nameof(Transpiler));
             harmony.Patch(rehydrate, transpiler: transpiler);
             harmony.Patch(convert, transpiler: transpiler);
 
-            var helper = AccessTools.TypeByName("HBS.Reflection.MemberInfoHelper");
-            harmony.Patch(AccessTools.Method(helper, "IsValueType", new[] { typeof(Type) }),
+            harmony.Patch(AccessTools.Method(typeof(HBS.Reflection.MemberInfoHelper), nameof(HBS.Reflection.MemberInfoHelper.IsValueType), new[] { typeof(Type) }),
                 prefix: new HarmonyMethod(typeof(JsonReflection), nameof(IsValueTypePrefix)) { priority = Priority.First },
                 postfix: new HarmonyMethod(typeof(JsonReflection), nameof(IsValueTypePostfix)) { priority = Priority.Last });
         }

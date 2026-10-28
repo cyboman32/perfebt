@@ -121,18 +121,18 @@ namespace PerfeBT
                 "SceneManager.LoadSceneAsync(string, LoadSceneMode)");
 
             // Resolve every target before patching anything, so a missing game target patches nothing.
-            var levelLoaderMoveNext = Req(AccessTools.EnumeratorMoveNext(Req(AccessTools.Method(typeof(LevelLoader), "Load", Type.EmptyTypes),
+            var levelLoaderMoveNext = Req(AccessTools.EnumeratorMoveNext(Req(AccessTools.Method(typeof(LevelLoader), nameof(LevelLoader.Load), Type.EmptyTypes),
                 "LevelLoader.Load()")), "LevelLoader.Load MoveNext");
             var targets = new List<KeyValuePair<MethodBase, Site>>
             {
                 Target(levelLoaderMoveNext, "LevelLoader.Load", 2),
-                Target(AccessTools.Method(typeof(DataManager), "Clear", new[] { typeof(bool), typeof(bool), typeof(bool), typeof(bool), typeof(bool) }),
+                Target(AccessTools.Method(typeof(DataManager), nameof(DataManager.Clear), new[] { typeof(bool), typeof(bool), typeof(bool), typeof(bool), typeof(bool) }),
                     "DataManager.Clear", 1),
-                Target(AccessTools.Method(typeof(PortraitManager), "ClearLargePortraits", Type.EmptyTypes),
+                Target(AccessTools.Method(typeof(PortraitManager), nameof(PortraitManager.ClearLargePortraits), Type.EmptyTypes),
                     "PortraitManager.ClearLargePortraits", 1),
-                Target(AccessTools.Method(typeof(SGRoomController_CptQuarters), "OnHeraldryClosed", new[] { typeof(HeraldryDef) }),
+                Target(AccessTools.Method(typeof(SGRoomController_CptQuarters), nameof(SGRoomController_CptQuarters.OnHeraldryClosed), new[] { typeof(HeraldryDef) }),
                     "CptQuarters.OnHeraldryClosed", 1),
-                Target(AccessTools.Method(typeof(StaticsFinder), "Update", Type.EmptyTypes),
+                Target(AccessTools.Method(typeof(StaticsFinder), nameof(StaticsFinder.Update), Type.EmptyTypes),
                     "StaticsFinder.Update", 2),
             };
             var emptyTargets = new List<MethodBase> { levelLoaderMoveNext };
@@ -140,7 +140,7 @@ namespace PerfeBT
             targets.AddRange(extraTargets);
             emptyTargets.AddRange(extraEmptyTargets);
 
-            var transpiler = new HarmonyMethod(AccessTools.Method(typeof(UnloadGate), nameof(Transpiler)));
+            var transpiler = new HarmonyMethod(typeof(UnloadGate), nameof(Transpiler));
             foreach (var t in targets)
             {
                 sites[t.Key] = t.Value;
@@ -149,7 +149,7 @@ namespace PerfeBT
 
             if (emptySceneAdditive)
             {
-                var emptyTranspiler = new HarmonyMethod(AccessTools.Method(typeof(UnloadGate), nameof(EmptyAdditiveTranspiler)));
+                var emptyTranspiler = new HarmonyMethod(typeof(UnloadGate), nameof(EmptyAdditiveTranspiler));
                 foreach (var m in emptyTargets)
                     harmony.Patch(m, transpiler: emptyTranspiler);
                 Log.Write($"UnloadGate: 'Empty' loaded Additive in {emptyTargets.Count} level loader coroutine(s)");
@@ -231,11 +231,9 @@ namespace PerfeBT
             return result;
         }
 
-        private static readonly FieldInfo levelLoaderActiveScene = AccessTools.Field(typeof(BattleTech.LevelLoader), "activeScene");
-
         public static LoadSceneMode EmptyLoadMode()
         {
-            if ((string)levelLoaderActiveScene.GetValue(null) != "Empty")
+            if (LevelLoader.activeScene != "Empty")
                 return LoadSceneMode.Additive;
             Log.Write("[unload] 'Empty' loaded Single: LevelLoader.activeScene is 'Empty'");
             return LoadSceneMode.Single;
@@ -366,13 +364,16 @@ namespace PerfeBT
         // to each other, so only the outermost call on the stack is handled.
         private static void PatchSceneManager(Harmony harmony)
         {
-            var prefix = new HarmonyMethod(AccessTools.Method(typeof(UnloadGate), nameof(ScenePrefix)));
-            var asyncPostfix = new HarmonyMethod(AccessTools.Method(typeof(UnloadGate), nameof(SceneAsyncPostfix)));
-            var finalizer = new HarmonyMethod(AccessTools.Method(typeof(UnloadGate), nameof(SceneFinalizer)));
-            var names = new HashSet<string> { "LoadScene", "LoadSceneAsync", "UnloadSceneAsync", "UnloadScene" };
+            var prefix = new HarmonyMethod(typeof(UnloadGate), nameof(ScenePrefix));
+            var asyncPostfix = new HarmonyMethod(typeof(UnloadGate), nameof(SceneAsyncPostfix));
+            var finalizer = new HarmonyMethod(typeof(UnloadGate), nameof(SceneFinalizer));
+            var names = new HashSet<string>
+            {
+                nameof(SceneManager.LoadScene), nameof(SceneManager.LoadSceneAsync), nameof(SceneManager.UnloadSceneAsync), nameof(SceneManager.UnloadScene)
+            };
 
             // Overload the game calls besides the two resolved in Apply; its absence means a different Unity version.
-            Req(AccessTools.Method(typeof(SceneManager), "UnloadSceneAsync", new[] { typeof(string) }), "SceneManager.UnloadSceneAsync(string)");
+            Req(AccessTools.Method(typeof(SceneManager), nameof(SceneManager.UnloadSceneAsync), new[] { typeof(string) }), "SceneManager.UnloadSceneAsync(string)");
 
             var count = 0;
             foreach (var m in typeof(SceneManager).GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly))

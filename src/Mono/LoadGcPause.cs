@@ -83,10 +83,10 @@ namespace PerfeBT
             // Throws if the runtime lacks the Unity GC switch (DllNotFound/EntryPointNotFound), before anything is patched.
             MonoApi.mono_unity_gc_is_disabled();
 
-            var prefix = new HarmonyMethod(AccessTools.Method(typeof(LoadGcPause), nameof(LoadPrefix)));
-            var single = AccessTools.Method(typeof(SceneManager), "LoadSceneAsync", new[] { typeof(string) })
+            var prefix = new HarmonyMethod(typeof(LoadGcPause), nameof(LoadPrefix));
+            var single = AccessTools.Method(typeof(SceneManager), nameof(SceneManager.LoadSceneAsync), new[] { typeof(string) })
                          ?? throw new MissingMethodException("SceneManager.LoadSceneAsync(string)");
-            var withMode = AccessTools.Method(typeof(SceneManager), "LoadSceneAsync", new[] { typeof(string), typeof(LoadSceneMode) })
+            var withMode = AccessTools.Method(typeof(SceneManager), nameof(SceneManager.LoadSceneAsync), new[] { typeof(string), typeof(LoadSceneMode) })
                            ?? throw new MissingMethodException("SceneManager.LoadSceneAsync(string, LoadSceneMode)");
             harmony.Patch(single, prefix: prefix);
             harmony.Patch(withMode, prefix: prefix);

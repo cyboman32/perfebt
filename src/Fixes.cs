@@ -1,27 +1,35 @@
 using System;
-using System.Collections;
 using System.Data;
 using System.Diagnostics;
 using System.IO;
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using HarmonyLib;
 
 namespace PerfeBT
 {
-    // Targeted fixes. Game-method fixes are bound by name; fixes over mod types (UnitTypeTags, CategoryCache) go through
-    // ApplyGuarded.
+    // Targeted fixes, compiled against publicized game and mod assemblies. Fixes over mod types go through
+    // ApplyGuarded and precompile their patch classes, so a missing or changed mod only switches that fix off.
     internal static class Fixes
     {
         internal static void Apply(Harmony harmony, Settings s)
         {
             if (s.FixTagSetIndex)
-                Patch(harmony, "BattleTech.Data.Tags_MDDExtenstions:GetTagsForSet", nameof(TagSetIndex.Prefix), typeof(TagSetIndex));
+                Patch(harmony, typeof(BattleTech.Data.Tags_MDDExtenstions), nameof(BattleTech.Data.Tags_MDDExtenstions.GetTagsForSet), new HarmonyMethod(typeof(TagSetIndex), nameof(TagSetIndex.Prefix)));
             if (s.SkipInternetCheck)
-                Patch(harmony, "BattleTech.UnityGameInstance:CheckInternetConnectivity", nameof(InternetCheck.Prefix), typeof(InternetCheck));
+                Patch(harmony, typeof(BattleTech.UnityGameInstance), nameof(BattleTech.UnityGameInstance.CheckInternetConnectivity), new HarmonyMethod(typeof(InternetCheck), nameof(InternetCheck.Prefix)));
             if (s.TimeLocalSettingsReads)
-                Patch(harmony, "CustomSettings.ModsLocalSettingsHelper:Init", nameof(LocalSettingsReads.Prefix), typeof(LocalSettingsReads));
+                ApplyGuarded("LocalSettingsReads", () =>
+                {
+                    Precompile(typeof(LocalSettingsReads));
+                    Patch(harmony, typeof(CustomSettings.ModsLocalSettingsHelper), nameof(CustomSettings.ModsLocalSettingsHelper.Init), new HarmonyMethod(typeof(LocalSettingsReads), nameof(LocalSettingsReads.Prefix)));
+                });
             if (s.TimeAutoFixers)
-                Patch(harmony, "BattleTech.SimGameState:RespondToDefsLoadComplete", nameof(AutoFixers.Prefix), typeof(AutoFixers), Priority.First);
+                ApplyGuarded("AutoFixers", () =>
+                {
+                    Precompile(typeof(AutoFixers));
+                    Patch(harmony, typeof(BattleTech.SimGameState), nameof(BattleTech.SimGameState.RespondToDefsLoadComplete), new HarmonyMethod(typeof(AutoFixers), nameof(AutoFixers.Prefix)) { priority = Priority.First });
+                });
             if (s.FixUnitTypeTags)
                 ApplyGuarded("UnitTypeTags", () => UnitTypeTags.Apply(harmony));
             if (s.FixCategoryCache)
@@ -101,6 +109,12 @@ namespace PerfeBT
                 ApplyGuarded("SaveAlloc.Serialize", () => SaveAlloc.ApplySerialize(harmony));
                 ApplyGuarded("SaveAlloc.Compress", () => SaveAlloc.ApplyCompress(harmony));
             }
+            if (s.ReleaseSavedStream)
+                ApplyGuarded("ReleaseSavedStream", () => SavedStreamRelease.Apply(harmony));
+            if (s.SaveSerializerLookups)
+                ApplyGuarded("SaveSerializerLookups", () => SaveSerializerLookups.Apply(harmony, s.SaveSerializerLookupsVerifyEvery));
+            if (s.SaveSerializerCopies)
+                ApplyGuarded("SaveSerializerCopies", () => SaveSerializerCopies.Apply(harmony));
             if (s.UiListPoolTrim)
                 ApplyGuarded("UiListPoolTrim", () => UiListPoolTrim.Apply(harmony));
             if (s.TransitionWatch)
@@ -132,6 +146,8 @@ namespace PerfeBT
                 ApplyGuarded("LineOfFireRayMemo", () => LineOfSightTrace.ApplyHeightMemo(harmony, s.LineOfFireRayMemoVerifyEvery, s.LineOfSightRayMemoPersist));
             if (s.LowVisibilityLineOfFire)
                 ApplyGuarded("LowVisibilityLineOfFire", () => LowVisibilityLineOfFire.Apply(harmony, s.LowVisibilityLineOfFireVerifyEvery));
+            if (s.LowVisibilitySpotMemo)
+                ApplyGuarded("LowVisibilitySpotMemo", () => LowVisibilitySpotMemo.Apply(harmony, s.LowVisibilitySpotMemoVerifyEvery));
             // After the census: it checks the original bytes of CancelCallDelayed, which this detours.
             if (s.DelayedStartIndex)
                 ApplyGuarded("DelayedStartIndex", () => DelayedStartIndex.Apply(s.DelayedStartIndexVerifyEvery));
@@ -152,17 +168,34 @@ namespace PerfeBT
             }
         }
 
-        private static void Patch(Harmony harmony, string target, string prefix, Type holder, int priority = Priority.Normal)
+        // Patch bodies are compiled on their first call, which for mod members would move a missing-member error from
+        // startup into play. A fix whose bodies use mod members directly calls this before patching, so the error
+        // surfaces inside ApplyGuarded and the fix stays off. Generic methods are skipped (they need an instantiation).
+        internal static void Precompile(params Type[] holders)
         {
+            const BindingFlags all = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance | BindingFlags.DeclaredOnly;
+            foreach (var holder in holders)
+                foreach (var m in holder.GetMethods(all))
+                {
+                    if (m.IsAbstract || m.ContainsGenericParameters)
+                        continue;
+                    RuntimeHelpers.PrepareMethod(m.MethodHandle);
+                    m.MethodHandle.GetFunctionPointer();   // Mono compiles here
+                }
+        }
+
+        private static void Patch(Harmony harmony, Type type, string method, HarmonyMethod prefix)
+        {
+            var target = $"{type.FullName}:{method}";
             try
             {
-                var original = AccessTools.Method(target);
+                var original = AccessTools.Method(type, method);
                 if (original == null)
                 {
                     Log.Write($"[fix] {target} not found, skipped");
                     return;
                 }
-                harmony.Patch(original, prefix: new HarmonyMethod(holder.GetMethod(prefix, BindingFlags.Static | BindingFlags.NonPublic | BindingFlags.Public)) { priority = priority });
+                harmony.Patch(original, prefix: prefix);
                 Log.Write($"[fix] patched {target}");
             }
             catch (Exception e)
@@ -184,22 +217,21 @@ namespace PerfeBT
                 wrapped = true;
                 try
                 {
-                    var actions = AccessTools.Field("CustomSettings.ModsLocalSettingsHelper:resetActions")?.GetValue(null) as IDictionary;
+                    var actions = CustomSettings.ModsLocalSettingsHelper.resetActions;
                     if (actions == null)
                         return;
-                    foreach (DictionaryEntry e in actions)
+                    foreach (var e in actions)
                     {
                         var action = e.Value;
-                        var readProp = AccessTools.Property(action.GetType(), "read");
-                        if (!(readProp?.GetValue(action, null) is Action<string> read))
+                        if (!(action?.read is Action<string> read))
                             continue;
-                        string id = e.Key as string;
-                        readProp.SetValue(action, (Action<string>)(text =>
+                        string id = e.Key;
+                        action.read = text =>
                         {
                             var sw = Stopwatch.StartNew();
                             try { read(text); }
                             finally { Log.Write($"[localsettings] read {id} ({text?.Length ?? 0} chars) {sw.ElapsedMilliseconds} ms"); }
-                        }), null);
+                        };
                     }
                 }
                 catch (Exception e)
@@ -224,16 +256,25 @@ namespace PerfeBT
                 wrapped = true;
                 try
                 {
-                    var shared = AccessTools.Field("CustomComponents.AutoFixer:Shared")?.GetValue(null);
-                    var fixers = shared == null ? null : AccessTools.Field(shared.GetType(), "fixers")?.GetValue(shared) as IList;
+                    var fixers = CustomComponents.AutoFixer.Shared?.fixers;
                     if (fixers == null)
                     {
                         Log.Write("[autofix] CustomComponents.AutoFixer.Shared.fixers not found");
                         return;
                     }
                     for (int i = 0; i < fixers.Count; i++)
-                        if (fixers[i] is Delegate d)
-                            fixers[i] = Timed.Wrap(d, $"{d.Method.DeclaringType?.FullName}::{d.Method.Name}");
+                    {
+                        var inner = fixers[i];
+                        if (inner == null)
+                            continue;
+                        var name = $"{inner.Method.DeclaringType?.FullName}::{inner.Method.Name}";
+                        fixers[i] = list =>
+                        {
+                            var sw = Stopwatch.StartNew();
+                            try { inner(list); }
+                            finally { Log.Write($"[autofix] {name} {sw.ElapsedMilliseconds} ms (items {list?.Count ?? -1})"); }
+                        };
+                    }
                     Log.Write($"[autofix] timing {fixers.Count} fixers");
                 }
                 catch (Exception e)
@@ -241,44 +282,6 @@ namespace PerfeBT
                     Log.Write("[autofix] wrap failed: " + e.Message);
                 }
             }
-        }
-    }
-
-    // Wraps a one-argument void delegate of any type (e.g. AutoFixerDelegate(List<MechDef>)) with a timer.
-    internal sealed class Timed<T>
-    {
-        private readonly Delegate inner;
-        private readonly string name;
-
-        internal Timed(Delegate inner, string name)
-        {
-            this.inner = inner;
-            this.name = name;
-        }
-
-        public void Run(T arg)
-        {
-            var sw = Stopwatch.StartNew();
-            try { inner.DynamicInvoke(arg); }
-            catch (TargetInvocationException e) when (e.InnerException != null)
-            {
-                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(e.InnerException).Throw();
-            }
-            finally
-            {
-                int n = arg is ICollection c ? c.Count : -1;
-                Log.Write($"[autofix] {name} {sw.ElapsedMilliseconds} ms (items {n})");
-            }
-        }
-    }
-
-    internal static class Timed
-    {
-        internal static Delegate Wrap(Delegate d, string name)
-        {
-            var arg = d.GetType().GetMethod("Invoke").GetParameters()[0].ParameterType;
-            var holder = Activator.CreateInstance(typeof(Timed<>).MakeGenericType(arg), BindingFlags.Instance | BindingFlags.NonPublic, null, new object[] { d, name }, null);
-            return Delegate.CreateDelegate(d.GetType(), holder, holder.GetType().GetMethod("Run"));
         }
     }
 }

@@ -17,7 +17,8 @@ namespace PerfeBT
 
         internal static void Apply(Harmony harmony)
         {
-            harmony.Patch(AccessTools.Method(typeof(UnitTypeDatabase), "BuildUnitTypes", new[] { typeof(MechDef) }),
+            Fixes.Precompile(typeof(UnitTypeTags));
+            harmony.Patch(AccessTools.Method(typeof(UnitTypeDatabase), nameof(UnitTypeDatabase.BuildUnitTypes), new[] { typeof(MechDef) }),
                 prefix: new HarmonyMethod(typeof(UnitTypeTags), nameof(BuildPrefix)),
                 finalizer: new HarmonyMethod(typeof(UnitTypeTags), nameof(BuildFinalizer)));
             harmony.Patch(AccessTools.Method(typeof(TagUnitType), nameof(TagUnitType.IsThisType)),

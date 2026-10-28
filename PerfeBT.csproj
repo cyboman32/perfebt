@@ -12,10 +12,23 @@
     <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
     <GameDir>D:\GAMES\_STEAM\steamapps\common\BATTLETECH</GameDir>
     <Managed>$(GameDir)\BattleTech_Data\Managed</Managed>
+    <ModsCore>$(GameDir)\Mods\Core</ModsCore>
+    <!-- Same as ModTek: the game's Mono skips access checks for code marked unverifiable, so no IgnoresAccessChecksTo. -->
+    <PublicizerRuntimeStrategies>Unsafe</PublicizerRuntimeStrategies>
   </PropertyGroup>
+  <ItemGroup>
+    <!-- Private members of the game and of RogueTech's mods are used directly instead of through reflection. -->
+    <PackageReference Include="Krafs.Publicizer" Version="2.3.2" PrivateAssets="all" />
+    <Publicize Include="Assembly-CSharp" />
+    <Publicize Include="UnityEngine.CoreModule" IncludeCompilerGeneratedMembers="false" />
+    <Publicize Include="UnityEngine.UI" IncludeCompilerGeneratedMembers="false" />
+    <Publicize Include="Dapper.Unity" IncludeCompilerGeneratedMembers="false" />
+    <Publicize Include="CustomComponents;CustomUnits;CustomAmmoCategories;IRBTModUtils;MissionControl;CustomMaps;LowVisibility;CustomFilters;CustomLocalSettings" IncludeCompilerGeneratedMembers="false" />
+  </ItemGroup>
   <ItemGroup>
     <Reference Include="0Harmony"><HintPath>$(GameDir)\Mods\ModTek\lib\0Harmony.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="MonoMod.Core"><HintPath>$(GameDir)\Mods\ModTek\lib\MonoMod.Core.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="ModTek"><HintPath>$(GameDir)\Mods\ModTek\lib\ModTek.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine"><HintPath>$(Managed)\UnityEngine.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.CoreModule"><HintPath>$(Managed)\UnityEngine.CoreModule.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.AssetBundleModule"><HintPath>$(Managed)\UnityEngine.AssetBundleModule.dll</HintPath><Private>false</Private></Reference>
@@ -24,7 +37,19 @@
     <Reference Include="UnityEngine.UIModule"><HintPath>$(Managed)\UnityEngine.UIModule.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="UnityEngine.UI"><HintPath>$(Managed)\UnityEngine.UI.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="Assembly-CSharp"><HintPath>$(Managed)\Assembly-CSharp.dll</HintPath><Private>false</Private></Reference>
-    <Reference Include="CustomComponents"><HintPath>$(GameDir)\Mods\Core\CustomComponents\CustomComponents.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Assembly-CSharp-firstpass"><HintPath>$(Managed)\Assembly-CSharp-firstpass.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="CustomComponents"><HintPath>$(ModsCore)\CustomComponents\CustomComponents.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="CustomUnits"><HintPath>$(ModsCore)\CustomUnits\CustomUnits.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="CustomAmmoCategories"><HintPath>$(ModsCore)\CustomAmmoCategories\CustomAmmoCategories.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="IRBTModUtils"><HintPath>$(ModsCore)\IRBTModUtils\IRBTModUtils.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="MissionControl"><HintPath>$(ModsCore)\MissionControl\MissionControl.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="CustomMaps"><HintPath>$(ModsCore)\CustomMaps\CustomMaps.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="LowVisibility"><HintPath>$(ModsCore)\LowVisibility\LowVisibility.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="CustomFilters"><HintPath>$(ModsCore)\CustomFilters\CustomFilters.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="CustomLocalSettings"><HintPath>$(ModsCore)\CustomLocalSettings\CustomLocalSettings.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Dapper"><HintPath>$(Managed)\Dapper.Unity.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Mono.Data.Sqlite"><HintPath>$(Managed)\Mono.Data.Sqlite.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="UnityEngine.TerrainModule"><HintPath>$(Managed)\UnityEngine.TerrainModule.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="Newtonsoft.Json"><HintPath>$(Managed)\Newtonsoft.Json.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="Google.Protobuf"><HintPath>$(Managed)\Google.Protobuf.Unity.dll</HintPath><Private>false</Private></Reference>
   </ItemGroup>

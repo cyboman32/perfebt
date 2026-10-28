@@ -126,6 +126,22 @@ namespace PerfeBT
         // gzip output stream starts at 1/32 of the input instead of its full size (~1.2 GB less per save; same bytes).
         public bool SaveAlloc = true;
 
+        // Saves: the serializer finds each object's contract, factory and type id by scanning its tables front to back
+        // (contract building took 746 ms of a 2.1 s PreSerialization). The first matching entry comes from a dictionary
+        // built in table order instead. Every SaveSerializerLookupsVerifyEvery-th lookup also scans and compares (0 =
+        // never); a difference switches the caches off for the session.
+        public bool SaveSerializerLookups = true;
+        public int SaveSerializerLookupsVerifyEvery = 64;
+
+        // Saves: fresh arrays nothing else keeps (child messages, array elements, stat collection bytes) are wrapped
+        // instead of copied into the parent message, and star system messages are written into exact-size streams.
+        // Same bytes; less time and allocation per save.
+        public bool SaveSerializerCopies = true;
+
+        // Memory only: every save kept its ~290 MB reference stream alive in the new save slot (586 MB for two slots
+        // on the Argo). Once the file is written the slot is only read for its metadata; the stream is dropped.
+        public bool ReleaseSavedStream = true;
+
         // UI 10-30x slower after a long mission (salvage, store, mech lab, mouse-over): empty lists in Unity UI's
         // shared ListPool<Component> keep the capacity of the largest masked panel, and every GetComponents into
         // them visits that whole capacity. Pooled lists above 128 slots drop their array after mask notifications.
@@ -163,7 +179,7 @@ namespace PerfeBT
         public int LineOfSightRayMemoVerifyEvery = 64;
 
         // Keeps the line-of-sight memo across calls until the map may change (building destroyed, cells repainted,
-        // CustomAmmoCategories design-mask change, round end) instead of dropping it after each update, death or
+        // CustomAmmoCategories design-mask change: only rays near the changed cells) instead of dropping it after each update, death or
         // rebuild: units rarely move between two deaths, so each death traced the same ~100,000 rays to the buildings
         // again. Only with LineOfSightRayMemo.
         public bool LineOfSightRayMemoPersist = true;
@@ -171,7 +187,7 @@ namespace PerfeBT
         // The same memo for LineOfSight.bresenhamHeightTest, the height-only walk behind line of fire: after the sight
         // lines were remembered, LowVisibility's GetLineOfFireUncached (0.13 ms per call, ~8 of these walks each, one
         // call per unit and target in every death rebuild) was most of a death freeze. Reads only cell heights and
-        // building cells, so it is dropped only for destroyed buildings, repaints and scene loads; kept across calls
+        // building cells, so it is dropped only for destroyed buildings and scene loads; kept across calls
         // with LineOfSightRayMemoPersist. Every LineOfFireRayMemoVerifyEvery-th reuse is traced again and compared.
         public bool LineOfFireRayMemo = true;
         public int LineOfFireRayMemoVerifyEvery = 64;
@@ -183,6 +199,14 @@ namespace PerfeBT
         // compared with LowVisibility's own result.
         public bool LowVisibilityLineOfFire = true;
         public int LowVisibilityLineOfFireVerifyEvery = 64;
+
+        // LowVisibility's CanSpotTarget tries every pair of sight points until one passes; with every ray remembered a
+        // building still cost ~0.05 ms, 0.8-1.1 s per urban death (18,000 checks). For building targets the answer is
+        // remembered by spotter range, both point lists and building while the map is unchanged. Only for the
+        // CanSpotTarget it was written against and with LineOfSightRayMemo kept across calls; every
+        // LowVisibilitySpotMemoVerifyEvery-th reuse runs LowVisibility's code and compares.
+        public bool LowVisibilitySpotMemo = true;
+        public int LowVisibilitySpotMemoVerifyEvery = 64;
 
         // The same ray walk without building the shared point list and walking it again, with the original's float
         // operations and calls. Every LineOfSightFastTraceVerifyEvery-th ray runs the original and compares (0 =
@@ -308,8 +332,9 @@ namespace PerfeBT
                 SaveLoadMaxLightLoads = SaveLoadMaxHeavyLoads = 0;
                 LoadGcPause = false;
                 LoadingScreenFix = ReleaseCombatLeftovers = ExitFast = LayoutFastPath = SaveAlloc = false;
+                SaveSerializerLookups = SaveSerializerCopies = ReleaseSavedStream = false;
                 UiListPoolTrim = DelayedStartIndex = FindObjectMissCache = VisibilityRebuildMemo = false;
-                LineOfSightRayMemo = LineOfSightRayMemoPersist = LineOfSightFastTrace = LineOfFireRayMemo = LowVisibilityLineOfFire = false;
+                LineOfSightRayMemo = LineOfSightRayMemoPersist = LineOfSightFastTrace = LineOfFireRayMemo = LowVisibilityLineOfFire = LowVisibilitySpotMemo = false;
                 UnloadSkipSites = new List<string>();
                 UnloadDeferSites = new List<string>();
                 EmptySceneAdditive = false;

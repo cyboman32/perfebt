@@ -18,16 +18,28 @@ namespace PerfeBT
     {
         private const long MinBytes = 32L << 20;
         private const int MaxHitsPerObject = 25;
-        private const int RvaGcArrays = 0x49dd40;
-        private const int OffHeapSects = 0x862e0; // struct { ptr start; size_t bytes; } GC_heap_sects[]
-        private const int RvaNHeapSects = 0x49a0e0;
+        internal const int RvaGcArrays = 0x49dd40;
+        internal const int OffHeapSects = 0x862e0; // struct { ptr start; size_t bytes; } GC_heap_sects[]
+        internal const int RvaNHeapSects = 0x49a0e0;
         private const int RvaGcBase = 0x305170;
         private const int RvaGcFindHeader = 0x3088e8;
         private static readonly byte[] GcBasePrologue = { 0x48, 0x89, 0x5c, 0x24, 0x08, 0x48, 0x89, 0x6c };
         private static readonly byte[] FindHeaderPrologue = { 0x48, 0x8b, 0xd1, 0x4c, 0x8d, 0x05, 0x2e, 0x37 };
 
+        // GC_find_header of this exact mono build (PE timestamp, image size and the function's first bytes checked).
+        internal static PtrFn FindHeader(IntPtr monoBase)
+        {
+            int peOffset = Marshal.ReadInt32(monoBase, 0x3c);
+            if (Marshal.ReadInt32(monoBase, peOffset + 8) != GcDump.TimeDateStamp || Marshal.ReadInt32(monoBase, peOffset + 0x50) != GcDump.SizeOfImage)
+                throw new NotSupportedException("mono-2.0-bdwgc.dll is not the build the addresses are for");
+            for (int i = 0; i < FindHeaderPrologue.Length; i++)
+                if (Marshal.ReadByte(monoBase, RvaGcFindHeader + i) != FindHeaderPrologue[i])
+                    throw new NotSupportedException("GC_find_header bytes differ");
+            return (PtrFn)Marshal.GetDelegateForFunctionPointer(new IntPtr(monoBase.ToInt64() + RvaGcFindHeader), typeof(PtrFn));
+        }
+
         [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-        private delegate IntPtr PtrFn(IntPtr p);
+        internal delegate IntPtr PtrFn(IntPtr p);
 
         [StructLayout(LayoutKind.Sequential)]
         private struct MemInfo
@@ -97,11 +109,11 @@ namespace PerfeBT
 
         internal static void Run(IntPtr monoBase)
         {
+            var findHeader = FindHeader(monoBase);
             for (int i = 0; i < GcBasePrologue.Length; i++)
-                if (Marshal.ReadByte(monoBase, RvaGcBase + i) != GcBasePrologue[i] || Marshal.ReadByte(monoBase, RvaGcFindHeader + i) != FindHeaderPrologue[i])
-                    throw new NotSupportedException("GC_base/GC_find_header bytes differ");
+                if (Marshal.ReadByte(monoBase, RvaGcBase + i) != GcBasePrologue[i])
+                    throw new NotSupportedException("GC_base bytes differ");
             var gcBase = (PtrFn)Marshal.GetDelegateForFunctionPointer(new IntPtr(monoBase.ToInt64() + RvaGcBase), typeof(PtrFn));
-            var findHeader = (PtrFn)Marshal.GetDelegateForFunctionPointer(new IntPtr(monoBase.ToInt64() + RvaGcFindHeader), typeof(PtrFn));
             var sw = Stopwatch.StartNew();
 
             var arrayTypes = new Dictionary<long, string>

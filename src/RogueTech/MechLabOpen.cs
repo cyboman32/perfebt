@@ -23,8 +23,6 @@ namespace PerfeBT
     // reach the scan (the postfix's `bundle == null` branch comes first).
     internal static class PrefabBundleScanCache
     {
-        private const string TargetType = "CustomUnits.DataManager_Exists";
-
         // Shadow mode: also run the original scan on every lookup and log any mismatch.
         public static bool Verify;
 
@@ -40,8 +38,8 @@ namespace PerfeBT
 
         internal static void Apply(Harmony harmony)
         {
-            var type = AccessTools.TypeByName(TargetType) ?? throw new MissingMemberException(TargetType);
-            var postfix = AccessTools.Method(type, "Postfix") ?? throw new MissingMethodException(TargetType, "Postfix");
+            Fixes.Precompile(typeof(PrefabBundleScanCache));
+            var postfix = AccessTools.Method(typeof(CustomUnits.DataManager_Exists), nameof(CustomUnits.DataManager_Exists.Postfix));
             harmony.Patch(postfix, transpiler: new HarmonyMethod(typeof(PrefabBundleScanCache), nameof(Transpiler)));
         }
 
@@ -175,27 +173,24 @@ namespace PerfeBT
     // discarded Load cannot affect later Loads. Only the Debug "Success load SVG" line / errors for cached icons vanish.
     internal static class MechLabIconPreload
     {
-        private const string UIHandlerType = "CustomFilters.MechLabFiltering.UIHandler";
-        private const string ButtonInfoType = "CustomFilters.MechLabFiltering.TabConfig.ButtonInfo";
-
         internal static void Apply(Harmony harmony)
         {
-            var handler = AccessTools.TypeByName(UIHandlerType) ?? throw new MissingMemberException(UIHandlerType);
-            var target = AccessTools.Method(handler, "PreloadIcons") ?? throw new MissingMethodException(UIHandlerType, "PreloadIcons");
+            Fixes.Precompile(typeof(MechLabIconPreload));
+            var target = AccessTools.Method(typeof(CustomFilters.MechLabFiltering.UIHandler), nameof(CustomFilters.MechLabFiltering.UIHandler.PreloadIcons));
             harmony.Patch(target, transpiler: new HarmonyMethod(typeof(MechLabIconPreload), nameof(Transpiler)));
         }
 
         private static IEnumerable<CodeInstruction> Transpiler(IEnumerable<CodeInstruction> instructions, ILGenerator il, MethodBase original)
         {
             var codes = instructions.ToList();
-            var iconCache = AccessTools.Field(original.DeclaringType, "_iconCache") ?? throw new MissingFieldException(UIHandlerType, "_iconCache");
-            var buttonInfo = AccessTools.TypeByName(ButtonInfoType) ?? throw new MissingMemberException(ButtonInfoType);
-            var buttonIcon = AccessTools.Field(buttonInfo, "Icon") ?? throw new MissingFieldException(ButtonInfoType, "Icon");
+            var iconCache = AccessTools.Field(typeof(CustomFilters.MechLabFiltering.UIHandler), nameof(CustomFilters.MechLabFiltering.UIHandler._iconCache));
+            // The name is checked at build time; the type is not, and the inserted IL calls SVGCache.Contains on it.
+            if (iconCache?.FieldType != typeof(SVGCache))
+                throw new InvalidOperationException("UIHandler._iconCache type changed");
+            var buttonIcon = AccessTools.Field(typeof(CustomFilters.MechLabFiltering.TabConfig.ButtonInfo), nameof(CustomFilters.MechLabFiltering.TabConfig.ButtonInfo.Icon));
             var getFilePath = AccessTools.PropertyGetter(typeof(VersionManifestEntry), nameof(VersionManifestEntry.FilePath));
             var fileExists = AccessTools.Method(typeof(File), nameof(File.Exists), new[] { typeof(string) });
             var contains = AccessTools.Method(typeof(SVGCache), nameof(SVGCache.Contains), new[] { typeof(string) });
-            if (iconCache.FieldType != typeof(SVGCache))
-                throw new InvalidOperationException("UIHandler._iconCache type changed");
 
             int iconLoad = codes.FindIndex(c => c.LoadsField(buttonIcon));
             if (iconLoad < 0 || iconLoad + 1 >= codes.Count || !codes[iconLoad + 1].IsStloc())

@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using HarmonyLib;
 using UnityEngine;
+using BattleTech.Save.Core;
 
 namespace PerfeBT
 {
@@ -22,12 +23,12 @@ namespace PerfeBT
 
         internal static void Apply(Harmony harmony)
         {
-            var request = typeof(BattleTech.UnityGameInstance).Assembly.GetType("BattleTech.Save.Core.ThreadedSaveManagerRequest")
-                          ?? throw new TypeLoadException("ThreadedSaveManagerRequest not found");
-            harmony.Patch(AccessTools.Method(request, "StartTask") ?? throw new MissingMethodException("StartTask"),
-                postfix: new HarmonyMethod(AccessTools.Method(typeof(ExitFast), nameof(StartPostfix))));
-            harmony.Patch(AccessTools.Method(request, "CompleteTask") ?? throw new MissingMethodException("CompleteTask"),
-                postfix: new HarmonyMethod(AccessTools.Method(typeof(ExitFast), nameof(CompletePostfix))));
+            harmony.Patch(AccessTools.Method(typeof(ThreadedSaveManagerRequest), nameof(ThreadedSaveManagerRequest.StartTask))
+                          ?? throw new MissingMethodException("StartTask"),
+                postfix: new HarmonyMethod(typeof(ExitFast), nameof(StartPostfix)));
+            harmony.Patch(AccessTools.Method(typeof(ThreadedSaveManagerRequest), nameof(ThreadedSaveManagerRequest.CompleteTask))
+                          ?? throw new MissingMethodException("CompleteTask"),
+                postfix: new HarmonyMethod(typeof(ExitFast), nameof(CompletePostfix)));
             Application.quitting += OnQuitting;
         }
 

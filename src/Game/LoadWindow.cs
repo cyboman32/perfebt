@@ -14,9 +14,6 @@ namespace PerfeBT
     // because ModTek's budget only applies inside a single batch.
     internal static class SaveLoadThrottle
     {
-        private static readonly AccessTools.FieldRef<DataManager, List<LoadRequest>> ActiveBatches =
-            AccessTools.FieldRefAccess<DataManager, List<LoadRequest>>("activeLoadBatches");
-
         private static int maxLightLoads;
         private static int maxHeavyLoads;
         private static float budgetSeconds;
@@ -34,18 +31,18 @@ namespace PerfeBT
             maxHeavyLoads = maxHeavy;
             budgetSeconds = frameBudgetMs / 1000f;
             diagnostics = loadDiagnostics;
-            harmony.Patch(AccessTools.Method(typeof(SimGameState), "RequestDataManagerResources"),
+            harmony.Patch(AccessTools.Method(typeof(SimGameState), nameof(SimGameState.RequestDataManagerResources)),
                 prefix: new HarmonyMethod(typeof(SaveLoadThrottle), nameof(Open)));
-            harmony.Patch(AccessTools.Method(typeof(SimGameState), "RespondToDefsLoadComplete"),
+            harmony.Patch(AccessTools.Method(typeof(SimGameState), nameof(SimGameState.RespondToDefsLoadComplete)),
                 prefix: new HarmonyMethod(typeof(SaveLoadThrottle), nameof(CloseOnDefsLoaded)) { priority = Priority.First });
-            harmony.Patch(AccessTools.Method(typeof(DataManager), "UpdateRequests"),
+            harmony.Patch(AccessTools.Method(typeof(DataManager), nameof(DataManager.UpdateRequests)),
                 prefix: new HarmonyMethod(typeof(SaveLoadThrottle), nameof(UpdatePrefix)) { priority = Priority.First },
                 postfix: new HarmonyMethod(typeof(SaveLoadThrottle), nameof(UpdatePostfix)));
-            harmony.Patch(AccessTools.Method(typeof(LoadRequest), "PopPendingRequest"),
+            harmony.Patch(AccessTools.Method(typeof(LoadRequest), nameof(LoadRequest.PopPendingRequest)),
                 prefix: new HarmonyMethod(typeof(SaveLoadThrottle), nameof(PopPrefix)) { priority = Priority.First },
                 postfix: diagnostics ? new HarmonyMethod(typeof(SaveLoadThrottle), nameof(PopPostfix)) { priority = Priority.Last } : null);
             if (diagnostics)
-                harmony.Patch(AccessTools.Method(typeof(DataManager), "CheckRequestsComplete"),
+                harmony.Patch(AccessTools.Method(typeof(DataManager), nameof(DataManager.CheckRequestsComplete)),
                     prefix: new HarmonyMethod(typeof(SaveLoadThrottle), nameof(CheckPrefix)),
                     postfix: new HarmonyMethod(typeof(SaveLoadThrottle), nameof(CheckPostfix)));
         }
@@ -91,7 +88,7 @@ namespace PerfeBT
             if (!inUpdate)
                 return;
             inUpdate = false;
-            var batches = ActiveBatches(__instance);
+            var batches = __instance.activeLoadBatches;
             if (diagnostics)
                 Diag.EndFrame(batches, Time.realtimeSinceStartup - updateStart);
             if (batches.Count == 0)
@@ -197,7 +194,7 @@ namespace PerfeBT
     {
         internal static void Apply(Harmony harmony)
         {
-            harmony.Patch(AccessTools.Method(typeof(HBS.Data.DataLoader), "LoadResource",
+            harmony.Patch(AccessTools.Method(typeof(HBS.Data.DataLoader), nameof(HBS.Data.DataLoader.LoadResource),
                     new[] { typeof(string), typeof(System.Action<string, System.IO.Stream>), typeof(bool) }),
                 prefix: new HarmonyMethod(typeof(DataLoaderMonitoring), nameof(Prefix)));
         }

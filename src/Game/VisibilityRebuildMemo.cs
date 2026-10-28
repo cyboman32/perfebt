@@ -35,9 +35,6 @@ namespace PerfeBT
         private const int Compute = 0, Reused = 1, Verify = 2;
         private const int LogMinCalls = 1000;
 
-        private static readonly AccessTools.FieldRef<VisibilityCacheBase, Dictionary<string, VisibilityLevelAndAttribution>> visLevelCache =
-            AccessTools.FieldRefAccess<VisibilityCacheBase, Dictionary<string, VisibilityLevelAndAttribution>>("VisLevelCache");
-
         private static readonly Dictionary<Key, VisibilityLevelAndAttribution> memo = new Dictionary<Key, VisibilityLevelAndAttribution>();
         private static int depth, verifyEvery;
         private static long windowStart, computed, reused, totalComputed, totalReused, verified;
@@ -47,13 +44,13 @@ namespace PerfeBT
         internal static void Apply(Harmony harmony, int verifyEveryN)
         {
             verifyEvery = verifyEveryN;
-            var calc = AccessTools.Method(typeof(VisibilityCache), "CalcVisValueToTarget", new[] { typeof(ICombatant) })
+            var calc = AccessTools.Method(typeof(VisibilityCache), nameof(VisibilityCache.CalcVisValueToTarget), new[] { typeof(ICombatant) })
                        ?? throw new MissingMethodException("VisibilityCache.CalcVisValueToTarget");
             var windows = new[]
             {
-                AccessTools.Method(typeof(TurnDirector), "RebuildVisCaches", new[] { typeof(List<ICombatant>) }),
-                AccessTools.Method(typeof(Team), "RebuildVisibilityCacheAllUnits", new[] { typeof(List<ICombatant>) }),
-                AccessTools.Method(typeof(AbstractActor), "UpdateVisibilityCacheForDeadUnit", new[] { typeof(List<ICombatant>) }),
+                AccessTools.Method(typeof(TurnDirector), nameof(TurnDirector.RebuildVisCaches), new[] { typeof(List<ICombatant>) }),
+                AccessTools.Method(typeof(Team), nameof(Team.RebuildVisibilityCacheAllUnits), new[] { typeof(List<ICombatant>) }),
+                AccessTools.Method(typeof(AbstractActor), nameof(AbstractActor.UpdateVisibilityCacheForDeadUnit), new[] { typeof(List<ICombatant>) }),
             };
             foreach (var w in windows)
             {
@@ -110,7 +107,7 @@ namespace PerfeBT
                 __state = Verify;
                 return true;
             }
-            visLevelCache(__instance)[__0.GUID] = value;
+            __instance.VisLevelCache[__0.GUID] = value;
             __result = value;
             __state = Reused;
             return false;
@@ -131,7 +128,7 @@ namespace PerfeBT
                 }
                 disabled = true;
                 memo.Clear();
-                var owner = Traverse.Create(__instance).Property("OwningActor").GetValue<AbstractActor>();
+                var owner = __instance.OwningActor;
                 Log.Write($"[vismemo] verification: {owner?.DisplayName} -> {__0.DisplayName} was {Describe(value)}, " +
                           $"computed again {Describe(__result)}; switched off for this session");
                 return;

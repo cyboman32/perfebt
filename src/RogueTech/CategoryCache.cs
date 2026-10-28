@@ -17,13 +17,10 @@ namespace PerfeBT
     {
         private static Dictionary<MechComponentDef, Category[]> scope;
 
-        // MechComponentRefExtensions.RefreshDef is internal to CustomComponents.
-        private static readonly System.Action<BaseComponentRef> RefreshDef =
-            AccessTools.MethodDelegate<System.Action<BaseComponentRef>>(AccessTools.Method(typeof(MechComponentRefExtensions), "RefreshDef"));
-
         internal static void Apply(Harmony harmony)
         {
-            harmony.Patch(AccessTools.Method(typeof(DefaultFixer), "FixMechs"),
+            Fixes.Precompile(typeof(CategoryCache), typeof(ReferenceComparer));
+            harmony.Patch(AccessTools.Method(typeof(DefaultFixer), nameof(DefaultFixer.FixMechs)),
                 prefix: new HarmonyMethod(typeof(CategoryCache), nameof(FixMechsPrefix)),
                 finalizer: new HarmonyMethod(typeof(CategoryCache), nameof(FixMechsFinalizer)));
             harmony.Patch(AccessTools.Method(typeof(CategoriesExtentions), nameof(CategoriesExtentions.IsCategory),
@@ -64,7 +61,7 @@ namespace PerfeBT
             categories = null;
             if (item == null)
                 return false;
-            RefreshDef(item);
+            MechComponentRefExtensions.RefreshDef(item);
             var def = item.Def;
             if (def == null)
                 return false;

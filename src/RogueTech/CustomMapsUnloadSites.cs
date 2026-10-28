@@ -11,17 +11,35 @@ namespace PerfeBT
     {
         internal static void Register()
         {
-            var customMaps = AccessTools.TypeByName("CustomMaps.Patches.LevelLoader_Start");
-            if (customMaps == null)
+            if (!ModAssemblies.Loaded("CustomMaps"))
             {
                 Log.Write("UnloadGate: CustomMaps not loaded, site CustomMaps.LoadCustom not patched");
                 return;
             }
-            var loadCustom = AccessTools.Method(customMaps, "LoadCustom", new[] { typeof(LevelLoader) })
-                             ?? throw new MissingMemberException("PerfeBT.UnloadGate: missing CustomMaps.Patches.LevelLoader_Start.LoadCustom(LevelLoader)");
-            var moveNext = AccessTools.EnumeratorMoveNext(loadCustom)
-                           ?? throw new MissingMemberException("PerfeBT.UnloadGate: missing CustomMaps LoadCustom MoveNext");
-            UnloadGate.AddSite(moveNext, "CustomMaps.LoadCustom", 2, loadsEmpty: true);
+            // A changed CustomMaps must only drop this site, not the whole UnloadGate fix that calls Register.
+            try
+            {
+                Fixes.Precompile(typeof(CustomMapsSite));
+                CustomMapsSite.Register();
+            }
+            catch (Exception e)
+            {
+                Log.Write("UnloadGate: site CustomMaps.LoadCustom not patched: " + e.Message);
+            }
+        }
+
+        // Uses CustomMaps members directly; only reached (and precompiled) when its assembly is loaded.
+        private static class CustomMapsSite
+        {
+            internal static void Register()
+            {
+                var loadCustom = AccessTools.Method(typeof(CustomMaps.Patches.LevelLoader_Start), nameof(CustomMaps.Patches.LevelLoader_Start.LoadCustom),
+                    new[] { typeof(LevelLoader) });
+                // The coroutine's state machine is compiler-generated (no C# name): found through Harmony.
+                var moveNext = AccessTools.EnumeratorMoveNext(loadCustom)
+                               ?? throw new MissingMemberException("PerfeBT.UnloadGate: missing CustomMaps LoadCustom MoveNext");
+                UnloadGate.AddSite(moveNext, "CustomMaps.LoadCustom", 2, loadsEmpty: true);
+            }
         }
     }
 }

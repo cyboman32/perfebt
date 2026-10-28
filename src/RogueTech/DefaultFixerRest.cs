@@ -19,38 +19,21 @@ namespace PerfeBT
     // input -> CC's original runs unchanged. Nothing is cached across calls.
     internal static class DefaultsChangeFast
     {
-        private static Func<bool> traceOn; // CustomComponents.Log.DefaultHandle.Trace != null, read live on every call
-
         [ThreadStatic] private static Scratch pooled;
 
         internal static void Apply(Harmony harmony)
         {
-            var target = AccessTools.Method(typeof(DefaultFixer), "DoDefaultsChange",
-                             new[] { typeof(InventoryOperationState), typeof(string) })
-                         ?? throw new MissingMethodException("CustomComponents.DefaultFixer", "DoDefaultsChange");
-            var log = AccessTools.TypeByName("CustomComponents.Log")
-                      ?? throw new TypeLoadException("CustomComponents.Log");
-            var handle = AccessTools.Field(log, "DefaultHandle")
-                         ?? throw new MissingFieldException("CustomComponents.Log", "DefaultHandle");
-            var trace = AccessTools.PropertyGetter(handle.FieldType, "Trace")
-                        ?? throw new MissingMethodException(handle.FieldType.FullName, "get_Trace");
-
-            // Same IL as CC's log sites: ldsfld DefaultHandle; callvirt get_Trace; != null.
-            var dm = new DynamicMethod("PerfeBT_DefaultHandleTraceOn", typeof(bool), Type.EmptyTypes, typeof(DefaultFixer), true);
-            var il = dm.GetILGenerator();
-            il.Emit(OpCodes.Ldsfld, handle);
-            il.Emit(OpCodes.Callvirt, trace);
-            il.Emit(OpCodes.Ldnull);
-            il.Emit(OpCodes.Cgt_Un);
-            il.Emit(OpCodes.Ret);
-            traceOn = (Func<bool>)dm.CreateDelegate(typeof(Func<bool>));
+            Fixes.Precompile(typeof(DefaultsChangeFast), typeof(Scratch));
+            var target = AccessTools.Method(typeof(DefaultFixer), nameof(DefaultFixer.DoDefaultsChange),
+                new[] { typeof(InventoryOperationState), typeof(string) });
 
             harmony.Patch(target, prefix: new HarmonyMethod(typeof(DefaultsChangeFast), nameof(Prefix)));
         }
 
         private static bool Prefix(InventoryOperationState __0, string __1)
         {
-            if (traceOn()) return true; // keep CC's trace output identical
+            // Same evaluation as CC's log sites (ldsfld DefaultHandle; callvirt get_Trace; != null), read live on every call.
+            if (CustomComponents.Log.DefaultHandle.Trace != null) return true; // keep CC's trace output identical
 
             var state = __0;
             var categoryId = __1;
@@ -228,8 +211,8 @@ namespace PerfeBT
     {
         internal static void Apply(Harmony harmony)
         {
-            var target = AccessTools.Method("CustomComponents.SorterUtils:SortMechDefInventory", new[] { typeof(MechComponentRef[]) })
-                         ?? throw new MissingMethodException("CustomComponents.SorterUtils", "SortMechDefInventory");
+            Fixes.Precompile(typeof(InventorySortFast), typeof(Comparer), typeof(ReferenceComparer));
+            var target = AccessTools.Method(typeof(SorterUtils), nameof(SorterUtils.SortMechDefInventory), new[] { typeof(MechComponentRef[]) });
             harmony.Patch(target, prefix: new HarmonyMethod(typeof(InventorySortFast), nameof(Prefix)));
         }
 
@@ -297,8 +280,8 @@ namespace PerfeBT
 
         internal static void Apply(Harmony harmony)
         {
-            var target = AccessTools.Method(typeof(InventoryOperationState), "DoChanges")
-                         ?? throw new MissingMethodException("CustomComponents.InventoryOperationState", "DoChanges");
+            Fixes.Precompile(typeof(PendingAdjustScan));
+            var target = AccessTools.Method(typeof(InventoryOperationState), nameof(InventoryOperationState.DoChanges));
             closureType = AccessTools.Inner(typeof(InventoryOperationState), "<>c__DisplayClass11_0")
                           ?? throw new TypeLoadException("CustomComponents.InventoryOperationState+<>c__DisplayClass11_0");
             adjField = AccessTools.Field(closureType, "adj")

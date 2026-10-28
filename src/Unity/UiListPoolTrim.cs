@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Reflection;
 using HarmonyLib;
 using UnityEngine;
 using UnityEngine.UI;
@@ -28,10 +27,8 @@ namespace PerfeBT
 
         internal static void Apply(Harmony harmony)
         {
-            var listPool = typeof(Graphic).Assembly.GetType("UnityEngine.UI.ListPool`1", true).MakeGenericType(typeof(Component));
-            var objectPool = listPool.GetField("s_ListPool", BindingFlags.Static | BindingFlags.NonPublic).GetValue(null);
-            pool = (Stack<List<Component>>)objectPool.GetType().GetField("m_Stack", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(objectPool);
-            var postfix = new HarmonyMethod(AccessTools.Method(typeof(UiListPoolTrim), nameof(Postfix)));
+            pool = ListPool<Component>.s_ListPool.m_Stack;
+            var postfix = new HarmonyMethod(typeof(UiListPoolTrim), nameof(Postfix));
             harmony.Patch(AccessTools.Method(typeof(MaskUtilities), nameof(MaskUtilities.Notify2DMaskStateChanged)), postfix: postfix);
             harmony.Patch(AccessTools.Method(typeof(MaskUtilities), nameof(MaskUtilities.NotifyStencilStateChanged)), postfix: postfix);
             Trim(null);
